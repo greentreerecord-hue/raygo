@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const password = String(body.password || "");
 
     if (username.endsWith("@raygoes.com")) {
-      username = username.slice(0, -13);
+      username = username.slice(0, -12);
     }
 
     if (!username || !password) {
