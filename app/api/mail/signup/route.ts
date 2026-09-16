@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import postgres from "postgres";
+import { createHash, randomBytes } from "crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ const sql = connectionString
     })
   : null;
 
-async function ensureMailUsersTable() {
+async function ensureMailTables() {
   if (!sql) {
     throw new Error("RayGo Mail database is not connected.");
   }
@@ -24,6 +25,16 @@ async function ensureMailUsersTable() {
       username TEXT UNIQUE NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS raygo_mail_sessions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES raygo_mail_users(id) ON DELETE CASCADE,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
@@ -49,6 +60,13 @@ export async function POST(request: Request) {
     if (!name || !username || !password) {
       return NextResponse.json(
         { error: "Name, username, and password are required." },
+        { status: 400 }
+      );
+    }
+
+    if (name.length > 80) {
+      return NextResponse.json(
+        { error: "Name must be 80 characters or fewer." },
         { status: 400 }
       );
     }
@@ -94,10 +112,9 @@ export async function POST(request: Request) {
       );
     }
 
-    await ensureMailUsersTable();
+    await ensureMailTables();
 
     const email = `${username}@raygoes.com`;
-    const passwordHash = await bcrypt.hash(password, 12);
 
     const existingUsers = await sql`
       SELECT id
@@ -114,31 +131,76 @@ export async function POST(request: Request) {
       );
     }
 
-    const newUsers = await sql`
-      INSERT INTO raygo_mail_users (
-        name,
-        username,
-        email,
-        password_hash
-      )
-      VALUES (
-        ${name},
-        ${username},
-        ${email},
-        ${passwordHash}
-      )
-      RETURNING id, name, username, email, created_at
-    `;
+    const passwordHash = await bcrypt.hash(password, 12);
+    const sessionToken = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256")
+      .update(sessionToken)
+      .digest("hex");
+    const expiresAt = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000
+    );
 
-    return NextResponse.json(
+    const newUser = await sql.begin(async (transaction) => {
+      const users = await transaction`
+        INSERT INTO raygo_mail_users (
+          name,
+          username,
+          email,
+          password_hash
+        )
+        VALUES (
+          ${name},
+          ${username},
+          ${email},
+          ${passwordHash}
+        )
+        RETURNING id, name, username, email, created_at
+      `;
+
+      await transaction`
+        INSERT INTO raygo_mail_sessions (
+          user_id,
+          token_hash,
+          expires_at
+        )
+        VALUES (
+          ${users[0].id},
+          ${tokenHash},
+          ${expiresAt}
+        )
+      `;
+
+      return users[0];
+    });
+
+    const response = NextResponse.json(
       {
         message: "Your RayGo Mail account was created.",
-        user: newUsers[0],
+        user: newUser,
       },
       { status: 201 }
     );
+
+    response.cookies.set("raygo_mail_session", sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      expires: expiresAt,
+    });
+
+    return response;
   } catch (error) {
     console.error("RayGo Mail signup error:", error);
+
+    const databaseError = error as { code?: string };
+
+    if (databaseError.code === "23505") {
+      return NextResponse.json(
+        { error: "That RayGo Mail username is already taken." },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(
       { error: "Unable to create your account right now." },
