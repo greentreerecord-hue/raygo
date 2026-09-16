@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 
 export default function Home() {
@@ -27,12 +28,12 @@ export default function Home() {
         </div>
 
         <nav className="flex gap-3">
-          <button
-            type="button"
+          <Link
+            href="/mail"
             className="rounded-full border border-slate-300 bg-white px-5 py-2 font-semibold shadow-sm"
           >
             RayGo Mail
-          </button>
+          </Link>
 
           <button
             type="button"
