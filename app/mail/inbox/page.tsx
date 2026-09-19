@@ -33,12 +33,8 @@ export default function RayGoMailInboxPage() {
     async function loadInbox() {
       try {
         const [userResponse, messagesResponse] = await Promise.all([
-          fetch("/api/mail/me", {
-            cache: "no-store",
-          }),
-          fetch("/api/mail/messages", {
-            cache: "no-store",
-          }),
+          fetch("/api/mail/me", { cache: "no-store" }),
+          fetch("/api/mail/messages", { cache: "no-store" }),
         ]);
 
         if (userResponse.status === 401 || messagesResponse.status === 401) {
@@ -50,16 +46,12 @@ export default function RayGoMailInboxPage() {
         const messagesData = await messagesResponse.json();
 
         if (!userResponse.ok) {
-          setInboxError(
-            userData.error || "Unable to open your account."
-          );
+          setInboxError(userData.error || "Unable to open your account.");
           return;
         }
 
         if (!messagesResponse.ok) {
-          setInboxError(
-            messagesData.error || "Unable to load your inbox."
-          );
+          setInboxError(messagesData.error || "Unable to load your inbox.");
           return;
         }
 
@@ -76,10 +68,7 @@ export default function RayGoMailInboxPage() {
   }, [router]);
 
   async function handleLogout() {
-    await fetch("/api/mail/logout", {
-      method: "POST",
-    });
-
+    await fetch("/api/mail/logout", { method: "POST" });
     router.push("/mail/login");
     router.refresh();
   }
@@ -91,6 +80,16 @@ export default function RayGoMailInboxPage() {
       hour: "numeric",
       minute: "2-digit",
     });
+  }
+
+  function replyLink(message: MailMessage) {
+    const subject = message.subject.toLowerCase().startsWith("re:")
+      ? message.subject
+      : `Re: ${message.subject}`;
+
+    return `/mail/compose?to=${encodeURIComponent(
+      message.sender_email
+    )}&subject=${encodeURIComponent(subject)}`;
   }
 
   if (loading) {
@@ -190,7 +189,6 @@ export default function RayGoMailInboxPage() {
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-6 py-5">
             <h1 className="text-3xl font-bold">Inbox</h1>
-
             <p className="mt-1 text-slate-500">
               Welcome, {user.name}. Your RayGo Mail address is {user.email}.
             </p>
@@ -199,11 +197,9 @@ export default function RayGoMailInboxPage() {
           {messages.length === 0 ? (
             <div className="px-6 py-12 text-center">
               <p className="text-xl font-bold">Your inbox is ready</p>
-
               <p className="mt-2 text-slate-500">
                 Messages sent to your RayGo Mail address will appear here.
               </p>
-
               <Link
                 href="/mail/compose"
                 className="mt-6 inline-block rounded-xl bg-blue-600 px-6 py-3 font-bold text-white hover:bg-blue-700"
@@ -221,18 +217,22 @@ export default function RayGoMailInboxPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="font-bold">{message.sender_name}</p>
-
                       <p className="text-sm text-slate-500">
                         {message.sender_email}
                       </p>
-
                       <h2 className="mt-2 text-lg font-bold">
                         {message.subject}
                       </h2>
-
                       <p className="mt-2 whitespace-pre-wrap text-slate-700">
                         {message.message_body}
                       </p>
+
+                      <Link
+                        href={replyLink(message)}
+                        className="mt-4 inline-block rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
+                      >
+                        Reply
+                      </Link>
                     </div>
 
                     <time className="text-sm text-slate-500">
