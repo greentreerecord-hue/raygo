@@ -21,21 +21,39 @@ type MailMessage = {
   sender_email: string;
 };
 
+type Folder = "inbox" | "trash";
+
 export default function RayGoMailInboxPage() {
   const router = useRouter();
 
   const [user, setUser] = useState<MailUser | null>(null);
   const [messages, setMessages] = useState<MailMessage[]>([]);
+  const [folder, setFolder] = useState<Folder>("inbox");
   const [loading, setLoading] = useState(true);
   const [inboxError, setInboxError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [movingId, setMovingId] = useState<number | null>(null);
 
   useEffect(() => {
-    async function loadInbox() {
+    let cancelled = false;
+
+    async function loadMessages() {
+      setLoading(true);
+      setInboxError("");
+      setActionError("");
+
       try {
+        const url =
+          folder === "trash"
+            ? "/api/mail/messages?folder=trash"
+            : "/api/mail/messages";
+
         const [userResponse, messagesResponse] = await Promise.all([
           fetch("/api/mail/me", { cache: "no-store" }),
-          fetch("/api/mail/messages", { cache: "no-store" }),
+          fetch(url, { cache: "no-store" }),
         ]);
+
+        if (cancelled) return;
 
         if (userResponse.status === 401 || messagesResponse.status === 401) {
           router.replace("/mail/login");
@@ -45,27 +63,75 @@ export default function RayGoMailInboxPage() {
         const userData = await userResponse.json();
         const messagesData = await messagesResponse.json();
 
+        if (cancelled) return;
+
         if (!userResponse.ok) {
           setInboxError(userData.error || "Unable to open your account.");
           return;
         }
 
         if (!messagesResponse.ok) {
-          setInboxError(messagesData.error || "Unable to load your inbox.");
+          setInboxError(
+            messagesData.error || "Unable to load your messages."
+          );
           return;
         }
 
         setUser(userData.user);
         setMessages(messagesData.messages || []);
       } catch {
-        setInboxError("Unable to load your inbox. Please try again.");
+        if (!cancelled) {
+          setInboxError("Unable to load your messages. Please try again.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
-    loadInbox();
-  }, [router]);
+    loadMessages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [folder, router]);
+
+  async function moveMessage(id: number) {
+    if (movingId !== null) return;
+
+    setMovingId(id);
+    setActionError("");
+
+    try {
+      const response = await fetch("/api/mail/messages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          action: folder === "inbox" ? "trash" : "restore",
+        }),
+      });
+
+      if (response.status === 401) {
+        router.replace("/mail/login");
+        return;
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setActionError(data.error || "Unable to move this message.");
+        return;
+      }
+
+      setMessages((current) =>
+        current.filter((message) => message.id !== id)
+      );
+    } catch {
+      setActionError("Unable to move this message. Please try again.");
+    } finally {
+      setMovingId(null);
+    }
+  }
 
   async function handleLogout() {
     await fetch("/api/mail/logout", { method: "POST" });
@@ -92,37 +158,6 @@ export default function RayGoMailInboxPage() {
     )}&subject=${encodeURIComponent(subject)}`;
   }
 
-  if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50">
-        <p className="text-lg text-slate-600">Opening your inbox...</p>
-      </main>
-    );
-  }
-
-  if (inboxError) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <section className="rounded-3xl border border-red-200 bg-white p-8 text-center shadow-xl">
-          <h1 className="text-2xl font-bold">RayGo Mail</h1>
-          <p className="mt-4 text-red-700">{inboxError}</p>
-
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mt-6 rounded-xl bg-blue-600 px-6 py-3 font-bold text-white"
-          >
-            Try Again
-          </button>
-        </section>
-      </main>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
-
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
@@ -130,20 +165,22 @@ export default function RayGoMailInboxPage() {
           RayGo Mail
         </Link>
 
-        <div className="flex items-center gap-4">
-          <div className="text-right">
-            <p className="font-semibold">{user.name}</p>
-            <p className="text-sm text-slate-500">{user.email}</p>
-          </div>
+        {user && (
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="font-semibold">{user.name}</p>
+              <p className="text-sm text-slate-500">{user.email}</p>
+            </div>
 
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-full border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100"
-          >
-            Sign Out
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-full border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100"
+            >
+              Sign Out
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-6 p-6 md:grid-cols-[240px_1fr]">
@@ -155,12 +192,15 @@ export default function RayGoMailInboxPage() {
             Compose
           </Link>
 
-          <nav className="space-y-2">
+          <nav className="space-y-2" aria-label="Mail folders">
             <button
               type="button"
-              className="w-full rounded-xl bg-blue-50 px-4 py-3 text-left font-bold text-blue-700"
+              onClick={() => setFolder("inbox")}
+              className={`w-full rounded-xl px-4 py-3 text-left font-semibold hover:bg-slate-100 ${
+                folder === "inbox" ? "bg-blue-50 text-blue-700" : ""
+              }`}
             >
-              Inbox ({messages.length})
+              Inbox {folder === "inbox" ? `(${messages.length})` : ""}
             </button>
 
             <button
@@ -179,7 +219,10 @@ export default function RayGoMailInboxPage() {
 
             <button
               type="button"
-              className="w-full rounded-xl px-4 py-3 text-left font-semibold hover:bg-slate-100"
+              onClick={() => setFolder("trash")}
+              className={`w-full rounded-xl px-4 py-3 text-left font-semibold hover:bg-slate-100 ${
+                folder === "trash" ? "bg-blue-50 text-blue-700" : ""
+              }`}
             >
               Trash
             </button>
@@ -188,24 +231,57 @@ export default function RayGoMailInboxPage() {
 
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-6 py-5">
-            <h1 className="text-3xl font-bold">Inbox</h1>
-            <p className="mt-1 text-slate-500">
-              Welcome, {user.name}. Your RayGo Mail address is {user.email}.
-            </p>
+            <h1 className="text-3xl font-bold">
+              {folder === "inbox" ? "Inbox" : "Trash"}
+            </h1>
+            {user && folder === "inbox" && (
+              <p className="mt-1 text-slate-500">
+                Welcome, {user.name}. Your RayGo Mail address is {user.email}.
+              </p>
+            )}
           </div>
 
-          {messages.length === 0 ? (
+          {actionError && (
+            <p role="alert" className="mx-6 mt-4 rounded-xl bg-red-50 p-4 text-red-700">
+              {actionError}
+            </p>
+          )}
+
+          {loading ? (
+            <p className="px-6 py-12 text-center text-slate-600">
+              Loading messages...
+            </p>
+          ) : inboxError ? (
             <div className="px-6 py-12 text-center">
-              <p className="text-xl font-bold">Your inbox is ready</p>
-              <p className="mt-2 text-slate-500">
-                Messages sent to your RayGo Mail address will appear here.
-              </p>
-              <Link
-                href="/mail/compose"
-                className="mt-6 inline-block rounded-xl bg-blue-600 px-6 py-3 font-bold text-white hover:bg-blue-700"
+              <p role="alert" className="text-red-700">{inboxError}</p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="mt-6 rounded-xl bg-blue-600 px-6 py-3 font-bold text-white"
               >
-                Compose Your First Message
-              </Link>
+                Try Again
+              </button>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <p className="text-xl font-bold">
+                {folder === "trash"
+                  ? "Trash is empty"
+                  : "Your inbox is ready"}
+              </p>
+              {folder === "inbox" && (
+                <>
+                  <p className="mt-2 text-slate-500">
+                    Messages sent to your RayGo Mail address will appear here.
+                  </p>
+                  <Link
+                    href="/mail/compose"
+                    className="mt-6 inline-block rounded-xl bg-blue-600 px-6 py-3 font-bold text-white hover:bg-blue-700"
+                  >
+                    Compose Your First Message
+                  </Link>
+                </>
+              )}
             </div>
           ) : (
             <div>
@@ -227,12 +303,29 @@ export default function RayGoMailInboxPage() {
                         {message.message_body}
                       </p>
 
-                      <Link
-                        href={replyLink(message)}
-                        className="mt-4 inline-block rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
-                      >
-                        Reply
-                      </Link>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {folder === "inbox" && (
+                          <Link
+                            href={replyLink(message)}
+                            className="inline-block rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
+                          >
+                            Reply
+                          </Link>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => moveMessage(message.id)}
+                          disabled={movingId !== null}
+                          className="rounded-xl border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          {movingId === message.id
+                            ? "Moving..."
+                            : folder === "inbox"
+                              ? "Move to Trash"
+                              : "Restore"}
+                        </button>
+                      </div>
                     </div>
 
                     <time className="text-sm text-slate-500">
