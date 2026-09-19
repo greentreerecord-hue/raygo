@@ -211,4 +211,45 @@ export async function PATCH(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function DELETE() {
+  try {
+    if (!sql) {
+      return NextResponse.json(
+        { error: "RayGo Mail database is not connected." },
+        { status: 500 }
+      );
+    }
+
+    const userId = await getSignedInUserId();
+
+    if (userId === null) {
+      return NextResponse.json(
+        { error: "Please sign in." },
+        { status: 401 }
+      );
+    }
+
+    await ensureMessagesTable();
+
+    const deleted = await sql`
+      DELETE FROM raygo_mail_messages
+      WHERE recipient_id = ${userId}
+        AND trashed_at IS NOT NULL
+      RETURNING id
+    `;
+
+    return NextResponse.json({
+      success: true,
+      deletedCount: deleted.length,
+    });
+  } catch (error) {
+    console.error("RayGo Mail empty trash error:", error);
+
+    return NextResponse.json(
+      { error: "Unable to empty Trash right now." },
+      { status: 500 }
+    );
+  }
 } 

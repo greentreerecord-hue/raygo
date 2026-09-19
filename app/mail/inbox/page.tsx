@@ -33,6 +33,7 @@ export default function RayGoMailInboxPage() {
   const [inboxError, setInboxError] = useState("");
   const [actionError, setActionError] = useState("");
   const [movingId, setMovingId] = useState<number | null>(null);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +97,7 @@ export default function RayGoMailInboxPage() {
   }, [folder, router]);
 
   async function moveMessage(id: number) {
-    if (movingId !== null) return;
+    if (movingId !== null || emptyingTrash) return;
 
     setMovingId(id);
     setActionError("");
@@ -130,6 +131,50 @@ export default function RayGoMailInboxPage() {
       setActionError("Unable to move this message. Please try again.");
     } finally {
       setMovingId(null);
+    }
+  }
+
+  async function handleEmptyTrash() {
+    if (
+      folder !== "trash" ||
+      messages.length === 0 ||
+      emptyingTrash ||
+      movingId !== null
+    ) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Permanently delete all messages in Trash? This cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    setEmptyingTrash(true);
+    setActionError("");
+
+    try {
+      const response = await fetch("/api/mail/messages", {
+        method: "DELETE",
+      });
+
+      if (response.status === 401) {
+        router.replace("/mail/login");
+        return;
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setActionError(data.error || "Unable to empty Trash.");
+        return;
+      }
+
+      setMessages([]);
+    } catch {
+      setActionError("Unable to empty Trash. Please try again.");
+    } finally {
+      setEmptyingTrash(false);
     }
   }
 
@@ -230,19 +275,36 @@ export default function RayGoMailInboxPage() {
         </aside>
 
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-6 py-5">
-            <h1 className="text-3xl font-bold">
-              {folder === "inbox" ? "Inbox" : "Trash"}
-            </h1>
-            {user && folder === "inbox" && (
-              <p className="mt-1 text-slate-500">
-                Welcome, {user.name}. Your RayGo Mail address is {user.email}.
-              </p>
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-5">
+            <div>
+              <h1 className="text-3xl font-bold">
+                {folder === "inbox" ? "Inbox" : "Trash"}
+              </h1>
+
+              {user && folder === "inbox" && (
+                <p className="mt-1 text-slate-500">
+                  Welcome, {user.name}. Your RayGo Mail address is {user.email}.
+                </p>
+              )}
+            </div>
+
+            {folder === "trash" && !loading && messages.length > 0 && (
+              <button
+                type="button"
+                onClick={handleEmptyTrash}
+                disabled={emptyingTrash || movingId !== null}
+                className="rounded-xl border border-red-300 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                {emptyingTrash ? "Emptying..." : "Empty Trash"}
+              </button>
             )}
           </div>
 
           {actionError && (
-            <p role="alert" className="mx-6 mt-4 rounded-xl bg-red-50 p-4 text-red-700">
+            <p
+              role="alert"
+              className="mx-6 mt-4 rounded-xl bg-red-50 p-4 text-red-700"
+            >
               {actionError}
             </p>
           )}
@@ -253,7 +315,9 @@ export default function RayGoMailInboxPage() {
             </p>
           ) : inboxError ? (
             <div className="px-6 py-12 text-center">
-              <p role="alert" className="text-red-700">{inboxError}</p>
+              <p role="alert" className="text-red-700">
+                {inboxError}
+              </p>
               <button
                 type="button"
                 onClick={() => window.location.reload()}
@@ -269,6 +333,7 @@ export default function RayGoMailInboxPage() {
                   ? "Trash is empty"
                   : "Your inbox is ready"}
               </p>
+
               {folder === "inbox" && (
                 <>
                   <p className="mt-2 text-slate-500">
@@ -316,7 +381,7 @@ export default function RayGoMailInboxPage() {
                         <button
                           type="button"
                           onClick={() => moveMessage(message.id)}
-                          disabled={movingId !== null}
+                          disabled={movingId !== null || emptyingTrash}
                           className="rounded-xl border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100 disabled:opacity-50"
                         >
                           {movingId === message.id
