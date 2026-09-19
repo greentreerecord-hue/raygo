@@ -1,17 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 
-export default function RayGoMailComposePage() {
+function ComposeForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
   const [messageBody, setMessageBody] = useState("");
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    setTo(searchParams.get("to") || "");
+    setSubject(searchParams.get("subject") || "");
+  }, [searchParams]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,7 +76,6 @@ export default function RayGoMailComposePage() {
             <Link href="/" className="text-2xl font-bold text-blue-600">
               RayGo Mail
             </Link>
-
             <h1 className="mt-2 text-3xl font-bold">New Message</h1>
           </div>
 
@@ -87,7 +92,6 @@ export default function RayGoMailComposePage() {
             <label htmlFor="to" className="mb-2 block font-semibold">
               To
             </label>
-
             <input
               id="to"
               type="email"
@@ -96,20 +100,15 @@ export default function RayGoMailComposePage() {
               placeholder="username@raygoes.com"
               className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
-
             <p className="mt-2 text-sm text-slate-500">
               Internal delivery currently supports RayGo Mail addresses.
             </p>
           </div>
 
           <div>
-            <label
-              htmlFor="subject"
-              className="mb-2 block font-semibold"
-            >
+            <label htmlFor="subject" className="mb-2 block font-semibold">
               Subject
             </label>
-
             <input
               id="subject"
               type="text"
@@ -122,13 +121,9 @@ export default function RayGoMailComposePage() {
           </div>
 
           <div>
-            <label
-              htmlFor="message"
-              className="mb-2 block font-semibold"
-            >
+            <label htmlFor="message" className="mb-2 block font-semibold">
               Message
             </label>
-
             <textarea
               id="message"
               rows={12}
@@ -159,7 +154,6 @@ export default function RayGoMailComposePage() {
             >
               Cancel
             </Link>
-
             <button
               type="submit"
               disabled={sending}
@@ -172,5 +166,12 @@ export default function RayGoMailComposePage() {
       </section>
     </main>
   );
-} 
+}
 
+export default function RayGoMailComposePage() {
+  return (
+    <Suspense fallback={<p className="p-8">Opening new message...</p>}>
+      <ComposeForm />
+    </Suspense>
+  );
+} 
