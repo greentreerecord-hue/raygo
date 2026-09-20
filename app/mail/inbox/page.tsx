@@ -272,7 +272,16 @@ export default function RayGoMailInboxPage() {
               Trash
             </button>
           </nav>
-        </aside>
+  
+
+          <Link
+            href="/mail/recovery-settings"
+            className="mt-6 block rounded-xl px-4 py-3 font-semibold text-blue-700 hover:bg-blue-50"
+          >
+            Recovery email settings
+          </Link>
+        </aside> 
+        
 
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-5">
