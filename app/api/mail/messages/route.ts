@@ -27,13 +27,19 @@ async function ensureMessagesTable() {
       message_body TEXT NOT NULL,
       read_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW(),
-      trashed_at TIMESTAMPTZ
+      trashed_at TIMESTAMPTZ,
+      recipient_deleted_at TIMESTAMPTZ
     )
   `;
 
   await sql`
     ALTER TABLE raygo_mail_messages
     ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ
+  `;
+
+  await sql`
+    ALTER TABLE raygo_mail_messages
+    ADD COLUMN IF NOT EXISTS recipient_deleted_at TIMESTAMPTZ
   `;
 }
 
@@ -45,9 +51,7 @@ async function getSignedInUserId(): Promise<number | null> {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get("raygo_mail_session")?.value;
 
-  if (!sessionToken) {
-    return null;
-  }
+  if (!sessionToken) return null;
 
   const tokenHash = createHash("sha256")
     .update(sessionToken)
@@ -88,11 +92,32 @@ export async function GET(request: NextRequest) {
 
     const folder = request.nextUrl.searchParams.get("folder");
 
-    if (folder !== null && folder !== "trash") {
+    if (folder !== null && folder !== "trash" && folder !== "sent") {
       return NextResponse.json(
         { error: "Unknown mail folder." },
         { status: 400 }
       );
+    }
+
+    if (folder === "sent") {
+      const messages = await sql`
+        SELECT
+          messages.id,
+          messages.subject,
+          messages.message_body,
+          messages.read_at,
+          messages.created_at,
+          recipients.name AS recipient_name,
+          recipients.email AS recipient_email
+        FROM raygo_mail_messages AS messages
+        JOIN raygo_mail_users AS recipients
+          ON recipients.id = messages.recipient_id
+        WHERE messages.sender_id = ${userId}
+        ORDER BY messages.created_at DESC
+        LIMIT 100
+      `;
+
+      return NextResponse.json({ messages });
     }
 
     const messages = folder === "trash"
@@ -110,6 +135,7 @@ export async function GET(request: NextRequest) {
             ON senders.id = messages.sender_id
           WHERE messages.recipient_id = ${userId}
             AND messages.trashed_at IS NOT NULL
+            AND messages.recipient_deleted_at IS NULL
           ORDER BY messages.trashed_at DESC
           LIMIT 100
         `
@@ -127,6 +153,7 @@ export async function GET(request: NextRequest) {
             ON senders.id = messages.sender_id
           WHERE messages.recipient_id = ${userId}
             AND messages.trashed_at IS NULL
+            AND messages.recipient_deleted_at IS NULL
           ORDER BY messages.created_at DESC
           LIMIT 100
         `;
@@ -184,6 +211,7 @@ export async function PATCH(request: NextRequest) {
           WHERE id = ${id}
             AND recipient_id = ${userId}
             AND trashed_at IS NULL
+            AND recipient_deleted_at IS NULL
           RETURNING id
         `
       : await sql`
@@ -192,6 +220,7 @@ export async function PATCH(request: NextRequest) {
           WHERE id = ${id}
             AND recipient_id = ${userId}
             AND trashed_at IS NOT NULL
+            AND recipient_deleted_at IS NULL
           RETURNING id
         `;
 
@@ -234,9 +263,11 @@ export async function DELETE() {
     await ensureMessagesTable();
 
     const deleted = await sql`
-      DELETE FROM raygo_mail_messages
+      UPDATE raygo_mail_messages
+      SET recipient_deleted_at = NOW()
       WHERE recipient_id = ${userId}
         AND trashed_at IS NOT NULL
+        AND recipient_deleted_at IS NULL
       RETURNING id
     `;
 

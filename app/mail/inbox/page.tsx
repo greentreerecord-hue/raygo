@@ -17,11 +17,13 @@ type MailMessage = {
   message_body: string;
   read_at: string | null;
   created_at: string;
-  sender_name: string;
-  sender_email: string;
+  sender_name?: string;
+  sender_email?: string;
+  recipient_name?: string;
+  recipient_email?: string;
 };
 
-type Folder = "inbox" | "trash";
+type Folder = "inbox" | "sent" | "trash";
 
 export default function RayGoMailInboxPage() {
   const router = useRouter();
@@ -45,9 +47,9 @@ export default function RayGoMailInboxPage() {
 
       try {
         const url =
-          folder === "trash"
-            ? "/api/mail/messages?folder=trash"
-            : "/api/mail/messages";
+          folder === "inbox"
+            ? "/api/mail/messages"
+            : `/api/mail/messages?folder=${folder}`;
 
         const [userResponse, messagesResponse] = await Promise.all([
           fetch("/api/mail/me", { cache: "no-store" }),
@@ -97,7 +99,7 @@ export default function RayGoMailInboxPage() {
   }, [folder, router]);
 
   async function moveMessage(id: number) {
-    if (movingId !== null || emptyingTrash) return;
+    if (folder === "sent" || movingId !== null || emptyingTrash) return;
 
     setMovingId(id);
     setActionError("");
@@ -199,9 +201,12 @@ export default function RayGoMailInboxPage() {
       : `Re: ${message.subject}`;
 
     return `/mail/compose?to=${encodeURIComponent(
-      message.sender_email
+      message.sender_email || ""
     )}&subject=${encodeURIComponent(subject)}`;
   }
+
+  const folderTitle =
+    folder === "inbox" ? "Inbox" : folder === "sent" ? "Sent" : "Trash";
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -250,7 +255,10 @@ export default function RayGoMailInboxPage() {
 
             <button
               type="button"
-              className="w-full rounded-xl px-4 py-3 text-left font-semibold hover:bg-slate-100"
+              onClick={() => setFolder("sent")}
+              className={`w-full rounded-xl px-4 py-3 text-left font-semibold hover:bg-slate-100 ${
+                folder === "sent" ? "bg-blue-50 text-blue-700" : ""
+              }`}
             >
               Sent
             </button>
@@ -272,7 +280,6 @@ export default function RayGoMailInboxPage() {
               Trash
             </button>
           </nav>
-  
 
           <Link
             href="/mail/recovery-settings"
@@ -280,15 +287,12 @@ export default function RayGoMailInboxPage() {
           >
             Recovery email settings
           </Link>
-        </aside> 
-        
+        </aside>
 
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-5">
             <div>
-              <h1 className="text-3xl font-bold">
-                {folder === "inbox" ? "Inbox" : "Trash"}
-              </h1>
+              <h1 className="text-3xl font-bold">{folderTitle}</h1>
 
               {user && folder === "inbox" && (
                 <p className="mt-1 text-slate-500">
@@ -340,7 +344,9 @@ export default function RayGoMailInboxPage() {
               <p className="text-xl font-bold">
                 {folder === "trash"
                   ? "Trash is empty"
-                  : "Your inbox is ready"}
+                  : folder === "sent"
+                    ? "No sent messages yet"
+                    : "Your inbox is ready"}
               </p>
 
               {folder === "inbox" && (
@@ -366,9 +372,15 @@ export default function RayGoMailInboxPage() {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-bold">{message.sender_name}</p>
+                      <p className="font-bold">
+                        {folder === "sent"
+                          ? `To: ${message.recipient_name || message.recipient_email}`
+                          : message.sender_name}
+                      </p>
                       <p className="text-sm text-slate-500">
-                        {message.sender_email}
+                        {folder === "sent"
+                          ? message.recipient_email
+                          : message.sender_email}
                       </p>
                       <h2 className="mt-2 text-lg font-bold">
                         {message.subject}
@@ -377,29 +389,31 @@ export default function RayGoMailInboxPage() {
                         {message.message_body}
                       </p>
 
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {folder === "inbox" && (
-                          <Link
-                            href={replyLink(message)}
-                            className="inline-block rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
-                          >
-                            Reply
-                          </Link>
-                        )}
+                      {folder !== "sent" && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {folder === "inbox" && (
+                            <Link
+                              href={replyLink(message)}
+                              className="inline-block rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
+                            >
+                              Reply
+                            </Link>
+                          )}
 
-                        <button
-                          type="button"
-                          onClick={() => moveMessage(message.id)}
-                          disabled={movingId !== null || emptyingTrash}
-                          className="rounded-xl border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100 disabled:opacity-50"
-                        >
-                          {movingId === message.id
-                            ? "Moving..."
-                            : folder === "inbox"
-                              ? "Move to Trash"
-                              : "Restore"}
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => moveMessage(message.id)}
+                            disabled={movingId !== null || emptyingTrash}
+                            className="rounded-xl border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100 disabled:opacity-50"
+                          >
+                            {movingId === message.id
+                              ? "Moving..."
+                              : folder === "inbox"
+                                ? "Move to Trash"
+                                : "Restore"}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <time className="text-sm text-slate-500">
