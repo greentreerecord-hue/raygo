@@ -15,15 +15,15 @@ type MailMessage = {
   id: number;
   subject: string;
   message_body: string;
-  read_at: string | null;
   created_at: string;
   sender_name?: string;
   sender_email?: string;
   recipient_name?: string;
   recipient_email?: string;
+  to_email?: string;
 };
 
-type Folder = "inbox" | "sent" | "trash";
+type Folder = "inbox" | "sent" | "drafts" | "trash";
 
 export default function RayGoMailInboxPage() {
   const router = useRouter();
@@ -35,6 +35,7 @@ export default function RayGoMailInboxPage() {
   const [inboxError, setInboxError] = useState("");
   const [actionError, setActionError] = useState("");
   const [movingId, setMovingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
 
   useEffect(() => {
@@ -44,12 +45,15 @@ export default function RayGoMailInboxPage() {
       setLoading(true);
       setInboxError("");
       setActionError("");
+      setMessages([]);
 
       try {
         const url =
-          folder === "inbox"
-            ? "/api/mail/messages"
-            : `/api/mail/messages?folder=${folder}`;
+          folder === "drafts"
+            ? "/api/mail/drafts"
+            : folder === "inbox"
+              ? "/api/mail/messages"
+              : `/api/mail/messages?folder=${folder}`;
 
         const [userResponse, messagesResponse] = await Promise.all([
           fetch("/api/mail/me", { cache: "no-store" }),
@@ -81,7 +85,28 @@ export default function RayGoMailInboxPage() {
         }
 
         setUser(userData.user);
-        setMessages(messagesData.messages || []);
+
+        if (folder === "drafts") {
+          setMessages(
+            (messagesData.drafts || []).map(
+              (draft: {
+                id: number;
+                to_email: string;
+                subject: string;
+                message_body: string;
+                updated_at: string;
+              }) => ({
+                id: draft.id,
+                to_email: draft.to_email,
+                subject: draft.subject,
+                message_body: draft.message_body,
+                created_at: draft.updated_at,
+              })
+            )
+          );
+        } else {
+          setMessages(messagesData.messages || []);
+        }
       } catch {
         if (!cancelled) {
           setInboxError("Unable to load your messages. Please try again.");
@@ -99,7 +124,14 @@ export default function RayGoMailInboxPage() {
   }, [folder, router]);
 
   async function moveMessage(id: number) {
-    if (folder === "sent" || movingId !== null || emptyingTrash) return;
+    if (
+      folder === "sent" ||
+      folder === "drafts" ||
+      movingId !== null ||
+      emptyingTrash
+    ) {
+      return;
+    }
 
     setMovingId(id);
     setActionError("");
@@ -133,6 +165,41 @@ export default function RayGoMailInboxPage() {
       setActionError("Unable to move this message. Please try again.");
     } finally {
       setMovingId(null);
+    }
+  }
+
+  async function deleteDraft(id: number) {
+    if (folder !== "drafts" || deletingId !== null) return;
+
+    if (!window.confirm("Delete this draft?")) return;
+
+    setDeletingId(id);
+    setActionError("");
+
+    try {
+      const response = await fetch(`/api/mail/drafts?id=${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.status === 401) {
+        router.replace("/mail/login");
+        return;
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setActionError(data.error || "Unable to delete draft.");
+        return;
+      }
+
+      setMessages((current) =>
+        current.filter((message) => message.id !== id)
+      );
+    } catch {
+      setActionError("Unable to delete draft. Please try again.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -206,7 +273,13 @@ export default function RayGoMailInboxPage() {
   }
 
   const folderTitle =
-    folder === "inbox" ? "Inbox" : folder === "sent" ? "Sent" : "Trash";
+    folder === "inbox"
+      ? "Inbox"
+      : folder === "sent"
+        ? "Sent"
+        : folder === "drafts"
+          ? "Drafts"
+          : "Trash";
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -265,7 +338,10 @@ export default function RayGoMailInboxPage() {
 
             <button
               type="button"
-              className="w-full rounded-xl px-4 py-3 text-left font-semibold hover:bg-slate-100"
+              onClick={() => setFolder("drafts")}
+              className={`w-full rounded-xl px-4 py-3 text-left font-semibold hover:bg-slate-100 ${
+                folder === "drafts" ? "bg-blue-50 text-blue-700" : ""
+              }`}
             >
               Drafts
             </button>
@@ -346,7 +422,9 @@ export default function RayGoMailInboxPage() {
                   ? "Trash is empty"
                   : folder === "sent"
                     ? "No sent messages yet"
-                    : "Your inbox is ready"}
+                    : folder === "drafts"
+                      ? "No saved drafts yet"
+                      : "Your inbox is ready"}
               </p>
 
               {folder === "inbox" && (
@@ -362,6 +440,15 @@ export default function RayGoMailInboxPage() {
                   </Link>
                 </>
               )}
+
+              {folder === "drafts" && (
+                <Link
+                  href="/mail/compose"
+                  className="mt-6 inline-block rounded-xl bg-blue-600 px-6 py-3 font-bold text-white hover:bg-blue-700"
+                >
+                  Compose a Message
+                </Link>
+              )}
             </div>
           ) : (
             <div>
@@ -372,47 +459,85 @@ export default function RayGoMailInboxPage() {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-bold">
-                        {folder === "sent"
-                          ? `To: ${message.recipient_name || message.recipient_email}`
-                          : message.sender_name}
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        {folder === "sent"
-                          ? message.recipient_email
-                          : message.sender_email}
-                      </p>
-                      <h2 className="mt-2 text-lg font-bold">
-                        {message.subject}
-                      </h2>
-                      <p className="mt-2 whitespace-pre-wrap text-slate-700">
-                        {message.message_body}
-                      </p>
+                      {folder === "drafts" ? (
+                        <>
+                          <p className="font-bold">
+                            To: {message.to_email || "(no recipient)"}
+                          </p>
+                          <h2 className="mt-2 text-lg font-bold">
+                            {message.subject || "(no subject)"}
+                          </h2>
+                          <p className="mt-2 whitespace-pre-wrap text-slate-700">
+                            {message.message_body || "(empty message)"}
+                          </p>
 
-                      {folder !== "sent" && (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {folder === "inbox" && (
+                          <div className="mt-4 flex flex-wrap gap-2">
                             <Link
-                              href={replyLink(message)}
-                              className="inline-block rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
+                              href={`/mail/compose?draft=${message.id}`}
+                              className="rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
                             >
-                              Reply
+                              Edit Draft
                             </Link>
-                          )}
+                            <button
+                              type="button"
+                              onClick={() => deleteDraft(message.id)}
+                              disabled={deletingId !== null}
+                              className="rounded-xl border border-red-300 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              {deletingId === message.id
+                                ? "Deleting..."
+                                : "Delete Draft"}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-bold">
+                            {folder === "sent"
+                              ? `To: ${
+                                  message.recipient_name ||
+                                  message.recipient_email
+                                }`
+                              : message.sender_name}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {folder === "sent"
+                              ? message.recipient_email
+                              : message.sender_email}
+                          </p>
+                          <h2 className="mt-2 text-lg font-bold">
+                            {message.subject}
+                          </h2>
+                          <p className="mt-2 whitespace-pre-wrap text-slate-700">
+                            {message.message_body}
+                          </p>
 
-                          <button
-                            type="button"
-                            onClick={() => moveMessage(message.id)}
-                            disabled={movingId !== null || emptyingTrash}
-                            className="rounded-xl border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100 disabled:opacity-50"
-                          >
-                            {movingId === message.id
-                              ? "Moving..."
-                              : folder === "inbox"
-                                ? "Move to Trash"
-                                : "Restore"}
-                          </button>
-                        </div>
+                          {folder !== "sent" && (
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {folder === "inbox" && (
+                                <Link
+                                  href={replyLink(message)}
+                                  className="rounded-xl border border-blue-300 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50"
+                                >
+                                  Reply
+                                </Link>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => moveMessage(message.id)}
+                                disabled={movingId !== null || emptyingTrash}
+                                className="rounded-xl border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100 disabled:opacity-50"
+                              >
+                                {movingId === message.id
+                                  ? "Moving..."
+                                  : folder === "inbox"
+                                    ? "Move to Trash"
+                                    : "Restore"}
+                              </button>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
 
