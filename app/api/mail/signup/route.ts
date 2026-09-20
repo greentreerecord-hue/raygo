@@ -8,9 +8,7 @@ export const dynamic = "force-dynamic";
 const connectionString = process.env.RAYGO_MAIL_DB_DATABASE_URL;
 
 const sql = connectionString
-  ? postgres(connectionString, {
-      ssl: "require",
-    })
+  ? postgres(connectionString, { ssl: "require" })
   : null;
 
 async function ensureMailTables() {
@@ -25,8 +23,21 @@ async function ensureMailTables() {
       username TEXT UNIQUE NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
+      recovery_email TEXT,
+      recovery_email_verified_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+
+  // Also update the table if it was created before recovery emails existed.
+  await sql`
+    ALTER TABLE raygo_mail_users
+    ADD COLUMN IF NOT EXISTS recovery_email TEXT
+  `;
+
+  await sql`
+    ALTER TABLE raygo_mail_users
+    ADD COLUMN IF NOT EXISTS recovery_email_verified_at TIMESTAMPTZ
   `;
 
   await sql`
@@ -55,11 +66,17 @@ export async function POST(request: Request) {
     const username = String(body.username || "")
       .trim()
       .toLowerCase();
+    const recoveryEmail = String(body.recoveryEmail || "")
+      .trim()
+      .toLowerCase();
     const password = String(body.password || "");
 
-    if (!name || !username || !password) {
+    if (!name || !username || !recoveryEmail || !password) {
       return NextResponse.json(
-        { error: "Name, username, and password are required." },
+        {
+          error:
+            "Name, username, recovery email, and password are required.",
+        },
         { status: 400 }
       );
     }
@@ -73,7 +90,10 @@ export async function POST(request: Request) {
 
     if (username.length < 3 || username.length > 30) {
       return NextResponse.json(
-        { error: "Username must be between 3 and 30 characters." },
+        {
+          error:
+            "Username must be between 3 and 30 characters.",
+        },
         { status: 400 }
       );
     }
@@ -100,14 +120,33 @@ export async function POST(request: Request) {
 
     if (reservedNames.includes(username)) {
       return NextResponse.json(
-        { error: "That username is reserved. Please choose another." },
+        {
+          error:
+            "That username is reserved. Please choose another.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      recoveryEmail.length > 254 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail) ||
+      recoveryEmail.endsWith("@raygoes.com")
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Enter a valid recovery email outside RayGo Mail.",
+        },
         { status: 400 }
       );
     }
 
     if (password.length < 8) {
       return NextResponse.json(
-        { error: "Password must be at least 8 characters." },
+        {
+          error: "Password must be at least 8 characters.",
+        },
         { status: 400 }
       );
     }
@@ -126,7 +165,10 @@ export async function POST(request: Request) {
 
     if (existingUsers.length > 0) {
       return NextResponse.json(
-        { error: "That RayGo Mail username is already taken." },
+        {
+          error:
+            "That RayGo Mail username is already taken.",
+        },
         { status: 409 }
       );
     }
@@ -146,13 +188,15 @@ export async function POST(request: Request) {
           name,
           username,
           email,
-          password_hash
+          password_hash,
+          recovery_email
         )
         VALUES (
           ${name},
           ${username},
           ${email},
-          ${passwordHash}
+          ${passwordHash},
+          ${recoveryEmail}
         )
         RETURNING id, name, username, email, created_at
       `;
@@ -197,13 +241,18 @@ export async function POST(request: Request) {
 
     if (databaseError.code === "23505") {
       return NextResponse.json(
-        { error: "That RayGo Mail username is already taken." },
+        {
+          error:
+            "That RayGo Mail username is already taken.",
+        },
         { status: 409 }
       );
     }
 
     return NextResponse.json(
-      { error: "Unable to create your account right now." },
+      {
+        error: "Unable to create your account right now.",
+      },
       { status: 500 }
     );
   }

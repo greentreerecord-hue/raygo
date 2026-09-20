@@ -9,27 +9,55 @@ export default function RayGoMailSignupPage() {
 
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
   const [creating, setCreating] = useState(false);
+  const [accountCreated, setAccountCreated] = useState(false);
 
   function cleanUsername(value: string) {
-    return value
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]/g, "");
+    return value.toLowerCase().replace(/[^a-z0-9._-]/g, "");
   }
 
-  async function createAccount(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  async function sendVerification() {
+    try {
+      setMessage("Sending a verification link to your recovery email...");
+
+      const response = await fetch(
+        "/api/mail/recovery/send-verification",
+        { method: "POST" }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          `Your account was created, but we could not send the verification email: ${
+            data.error || "Please try again."
+          }`
+        );
+        return;
+      }
+
+      setMessage(
+        "Your account was created. Check your recovery email and open the verification link."
+      );
+    } catch {
+      setMessage(
+        "Your account was created, but we could not send the verification email. Please try again."
+      );
+    }
+  }
+
+  async function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
 
     if (
       !name.trim() ||
       !username.trim() ||
+      !recoveryEmail.trim() ||
       !password ||
       !confirmPassword
     ) {
@@ -38,16 +66,20 @@ export default function RayGoMailSignupPage() {
     }
 
     if (username.length < 3) {
-      setMessage(
-        "Your email name must have at least 3 characters."
-      );
+      setMessage("Your email name must have at least 3 characters.");
+      return;
+    }
+
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail.trim()) ||
+      recoveryEmail.trim().toLowerCase().endsWith("@raygoes.com")
+    ) {
+      setMessage("Enter a recovery email outside RayGo Mail.");
       return;
     }
 
     if (password.length < 8) {
-      setMessage(
-        "Your password must have at least 8 characters."
-      );
+      setMessage("Your password must have at least 8 characters.");
       return;
     }
 
@@ -60,38 +92,28 @@ export default function RayGoMailSignupPage() {
       setCreating(true);
       setMessage("Creating your RayGo Mail account...");
 
-      const response = await fetch(
-        "/api/mail/signup",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: name.trim(),
-            username,
-            password,
-          }),
-        }
-      );
+      const response = await fetch("/api/mail/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          username,
+          recoveryEmail: recoveryEmail.trim(),
+          password,
+        }),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(
-          data.error ||
-            "Could not create your account."
-        );
+        setMessage(data.error || "Could not create your account.");
         return;
       }
 
-      setMessage(
-        `Account created! Your address is ${data.email}`
-      );
-
-      setTimeout(() => {
-        router.push("/mail/inbox");
-      }, 1200);
+      setAccountCreated(true);
+      setPassword("");
+      setConfirmPassword("");
+      await sendVerification();
     } catch (error) {
       console.error("Mail signup error:", error);
       setMessage("Could not create your account.");
@@ -123,131 +145,154 @@ export default function RayGoMailSignupPage() {
             Choose your new RayGo Mail address.
           </p>
 
-          <form
-            onSubmit={createAccount}
-            className="space-y-5"
-          >
-            <div>
-              <label
-                htmlFor="name"
-                className="mb-2 block font-bold"
-              >
-                Your Name
-              </label>
-
-              <input
-                id="name"
-                type="text"
-                value={name}
-                onChange={(event) =>
-                  setName(event.target.value)
-                }
-                disabled={creating}
-                className="w-full rounded-xl border-2 border-slate-300 px-4 py-3 text-lg outline-none focus:border-blue-500"
-                placeholder="Raymond Robinson"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="username"
-                className="mb-2 block font-bold"
-              >
-                Choose Email Address
-              </label>
-
-              <div className="flex items-center rounded-xl border-2 border-slate-300 bg-white focus-within:border-blue-500">
+          {!accountCreated ? (
+            <form onSubmit={createAccount} className="space-y-5">
+              <div>
+                <label htmlFor="name" className="mb-2 block font-bold">
+                  Your Name
+                </label>
                 <input
-                  id="username"
+                  id="name"
                   type="text"
-                  value={username}
-                  onChange={(event) =>
-                    setUsername(
-                      cleanUsername(event.target.value)
-                    )
-                  }
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
                   disabled={creating}
-                  className="min-w-0 flex-1 rounded-l-xl px-4 py-3 text-lg outline-none"
-                  placeholder="yourname"
+                  className="w-full rounded-xl border-2 border-slate-300 px-4 py-3 text-lg outline-none focus:border-blue-500"
+                  placeholder="Your name"
                 />
-
-                <span className="pr-4 text-slate-500">
-                  @raygoes.com
-                </span>
               </div>
 
-              <p className="mt-2 text-sm text-blue-600">
-                Your address: {emailPreview}
+              <div>
+                <label
+                  htmlFor="username"
+                  className="mb-2 block font-bold"
+                >
+                  Choose Email Address
+                </label>
+                <div className="flex items-center rounded-xl border-2 border-slate-300 bg-white focus-within:border-blue-500">
+                  <input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(event) =>
+                      setUsername(cleanUsername(event.target.value))
+                    }
+                    disabled={creating}
+                    className="min-w-0 flex-1 rounded-l-xl px-4 py-3 text-lg outline-none"
+                    placeholder="yourname"
+                  />
+                  <span className="pr-4 text-slate-500">
+                    @raygoes.com
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-blue-600">
+                  Your address: {emailPreview}
+                </p>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="recovery-email"
+                  className="mb-2 block font-bold"
+                >
+                  Recovery Email
+                </label>
+                <input
+                  id="recovery-email"
+                  type="email"
+                  value={recoveryEmail}
+                  onChange={(event) =>
+                    setRecoveryEmail(event.target.value)
+                  }
+                  disabled={creating}
+                  className="w-full rounded-xl border-2 border-slate-300 px-4 py-3 text-lg outline-none focus:border-blue-500"
+                  placeholder="An email you already use"
+                />
+                <p className="mt-2 text-sm text-slate-600">
+                  Use an address outside RayGo Mail. We will send a
+                  verification link there.
+                </p>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="password"
+                  className="mb-2 block font-bold"
+                >
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(event) =>
+                    setPassword(event.target.value)
+                  }
+                  disabled={creating}
+                  className="w-full rounded-xl border-2 border-slate-300 px-4 py-3 text-lg outline-none focus:border-blue-500"
+                  placeholder="At least 8 characters"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="confirm-password"
+                  className="mb-2 block font-bold"
+                >
+                  Confirm Password
+                </label>
+                <input
+                  id="confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) =>
+                    setConfirmPassword(event.target.value)
+                  }
+                  disabled={creating}
+                  className="w-full rounded-xl border-2 border-slate-300 px-4 py-3 text-lg outline-none focus:border-blue-500"
+                  placeholder="Enter the password again"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={creating}
+                className="w-full rounded-full bg-blue-600 px-6 py-4 text-lg font-bold text-white shadow-lg hover:bg-blue-700 disabled:bg-slate-400"
+              >
+                {creating ? "Creating Account..." : "Create Account"}
+              </button>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <p className="font-semibold">
+                Your new address is {emailPreview}.
               </p>
-            </div>
-
-            <div>
-              <label
-                htmlFor="password"
-                className="mb-2 block font-bold"
+              <button
+                type="button"
+                onClick={sendVerification}
+                className="rounded-full bg-blue-600 px-6 py-3 font-bold text-white"
               >
-                Password
-              </label>
-
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(event) =>
-                  setPassword(event.target.value)
-                }
-                disabled={creating}
-                className="w-full rounded-xl border-2 border-slate-300 px-4 py-3 text-lg outline-none focus:border-blue-500"
-                placeholder="At least 8 characters"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="confirm-password"
-                className="mb-2 block font-bold"
+                Resend verification email
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push("/mail/inbox")}
+                className="ml-3 rounded-full border border-slate-300 px-6 py-3 font-bold"
               >
-                Confirm Password
-              </label>
-
-              <input
-                id="confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(event) =>
-                  setConfirmPassword(
-                    event.target.value
-                  )
-                }
-                disabled={creating}
-                className="w-full rounded-xl border-2 border-slate-300 px-4 py-3 text-lg outline-none focus:border-blue-500"
-                placeholder="Enter the password again"
-              />
+                Go to inbox
+              </button>
             </div>
-
-            <button
-              type="submit"
-              disabled={creating}
-              className="w-full rounded-full bg-blue-600 px-6 py-4 text-lg font-bold text-white shadow-lg hover:bg-blue-700 disabled:bg-slate-400"
-            >
-              {creating
-                ? "Creating Account..."
-                : "Create Account"}
-            </button>
-          </form>
+          )}
 
           {message && (
-            <p className="mt-5 rounded-xl bg-slate-100 p-4 font-semibold">
+            <p role="status" className="mt-5 rounded-xl bg-slate-100 p-4 font-semibold">
               {message}
             </p>
           )}
 
           <p className="mt-7 text-center text-slate-600">
             Already have an account?{" "}
-            <Link
-              href="/mail/login"
-              className="font-bold text-blue-600"
-            >
+            <Link href="/mail/login" className="font-bold text-blue-600">
               Sign in
             </Link>
           </p>

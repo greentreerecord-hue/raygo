@@ -105,6 +105,15 @@ export default function RayGoMailLoginPage() {
             />
           </div>
 
+          <div className="text-right">
+            <Link
+              href="/mail/forgot-password"
+              className="font-semibold text-blue-600 hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
+
           {message && (
             <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               {message}
