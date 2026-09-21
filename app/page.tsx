@@ -3,10 +3,28 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
+type SearchResult = {
+  url: string;
+  hostname: string;
+  title: string;
+  description: string | null;
+  indexed_at: string;
+};
+
+type SearchResponse = {
+  query: string;
+  count: number;
+  results: SearchResult[];
+};
+
 export default function Home() {
   const [searchText, setSearchText] = useState("");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [error, setError] = useState("");
 
-  function searchWeb(event: FormEvent<HTMLFormElement>) {
+  async function searchWeb(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const query = searchText.trim();
@@ -15,8 +33,28 @@ export default function Home() {
       return;
     }
 
-    window.location.href =
-      `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
+    setLoading(true);
+    setSearched(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/search?q=${encodeURIComponent(query)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Search request failed");
+      }
+
+      const data: SearchResponse = await response.json();
+      setResults(data.results || []);
+    } catch (searchError) {
+      console.error(searchError);
+      setResults([]);
+      setError("RayGo could not complete the search. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -44,7 +82,7 @@ export default function Home() {
         </nav>
       </header>
 
-      <section className="flex min-h-[75vh] flex-col items-center justify-center px-5 text-center">
+      <section className="flex flex-col items-center px-5 py-20 text-center">
         <h1 className="mb-3 text-6xl font-black tracking-tight sm:text-8xl">
           <span className="text-blue-600">Ray</span>
           <span className="text-emerald-500">Go</span>
@@ -73,9 +111,10 @@ export default function Home() {
 
           <button
             type="submit"
-            className="rounded-full bg-blue-600 px-7 py-3 text-lg font-bold text-white hover:bg-blue-700"
+            disabled={loading}
+            className="rounded-full bg-blue-600 px-7 py-3 text-lg font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
           >
-            Search
+            {loading ? "Searching..." : "Search"}
           </button>
         </form>
 
@@ -92,6 +131,59 @@ export default function Home() {
               </button>
             )
           )}
+        </div>
+
+        <div className="mt-12 w-full max-w-3xl text-left">
+          {error && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-700">
+              {error}
+            </div>
+          )}
+
+          {!loading &&
+            searched &&
+            !error &&
+            results.length === 0 && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+                <p className="text-lg font-bold">
+                  No results found
+                </p>
+                <p className="mt-2 text-slate-500">
+                  RayGo has not indexed a matching page yet.
+                </p>
+              </div>
+            )}
+
+          {!loading &&
+            results.map((result) => (
+              <article
+                key={result.url}
+                className="mb-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+              >
+                <p className="mb-1 text-sm font-medium text-emerald-700">
+                  {result.hostname}
+                </p>
+
+                <a
+                  href={result.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-2xl font-bold text-blue-700 hover:underline"
+                >
+                  {result.title || result.url}
+                </a>
+
+                <p className="mt-2 break-all text-sm text-emerald-700">
+                  {result.url}
+                </p>
+
+                {result.description && (
+                  <p className="mt-3 leading-relaxed text-slate-600">
+                    {result.description}
+                  </p>
+                )}
+              </article>
+            ))}
         </div>
       </section>
 
