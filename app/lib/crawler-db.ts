@@ -1,12 +1,23 @@
 import postgres from "postgres";
 
+const connectionCandidates = [
+  process.env.RAYGO_MAIL_DB_POSTGRES_URL,
+  process.env
+    .RAYGO_MAIL_DB_POSTGRES_URL_NON_POOLING,
+  process.env.RAYGO_MAIL_DB_DATABASE_URL,
+];
+
 const connectionString =
-  process.env.RAYGO_MAIL_DB_DATABASE_URL;
+  connectionCandidates.find(
+    (value) =>
+      value?.startsWith("postgres://") ||
+      value?.startsWith("postgresql://")
+  );
 
 function getDatabase() {
   if (!connectionString) {
     throw new Error(
-      "RAYGO_MAIL_DB_DATABASE_URL is missing"
+      "No valid RayGo Postgres connection URL was found"
     );
   }
 
@@ -78,8 +89,10 @@ export async function saveIndexedPage(
   page: IndexedPage
 ) {
   const sql = getDatabase();
-  const category = page.category || "web";
-  const publishedAt = page.publishedAt || null;
+  const category =
+    page.category || "web";
+  const publishedAt =
+    page.publishedAt || null;
 
   try {
     await ensureCrawlerTable();
@@ -124,7 +137,8 @@ export async function searchIndexedPages(
   searchText: string,
   category?: string
 ) {
-  const query = searchText.trim();
+  const query =
+    searchText.trim();
 
   if (!query) {
     return [];
@@ -192,7 +206,8 @@ export async function searchIndexedPages(
   } finally {
     await sql.end();
   }
-} 
+}
+
 export async function getLatestCategoryPages(
   category: string
 ) {

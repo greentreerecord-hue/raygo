@@ -6,7 +6,9 @@ import { saveIndexedPage } from "./crawler-db";
 
 const USER_AGENT =
   "RayGoBot/1.0 (+https://raygoes.com)";
+
 const MAX_PAGES = 5;
+const MAX_IMAGES_PER_PAGE = 10;
 const MAX_REDIRECTS = 5;
 const MAX_CONTENT_BYTES = 2_000_000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -15,6 +17,12 @@ type CrawlResult = {
   indexed: string[];
   skipped: string[];
   errors: string[];
+};
+
+type ImageCandidate = {
+  url: string;
+  title: string;
+  description: string;
 };
 
 function isPrivateIp(address: string) {
@@ -192,6 +200,7 @@ async function websiteAllowsCrawler(
     }
 
     const text = await response.text();
+
     const robots = robotsParser(
       robotsUrl,
       text
@@ -219,7 +228,7 @@ function canCrawlLink(
   const pathname = url.pathname.toLowerCase();
 
   const blockedFile =
-    /\.(jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|mp3|mp4|webm|mov|css|js)$/i.test(
+    /\.(jpg|jpeg|png|gif|webp|avif|svg|ico|pdf|zip|mp3|mp4|webm|mov|css|js)$/i.test(
       pathname
     );
 
@@ -229,6 +238,151 @@ function canCrawlLink(
     url.hostname === approvedHostname &&
     !blockedFile
   );
+}
+
+function createImageUrl(
+  value: string,
+  pageUrl: string
+) {
+  try {
+    const imageUrl = new URL(
+      value,
+      pageUrl
+    );
+
+    imageUrl.hash = "";
+
+    if (
+      imageUrl.protocol !== "https:" &&
+      imageUrl.protocol !== "http:"
+    ) {
+      return null;
+    }
+
+    if (
+      imageUrl.username ||
+      imageUrl.password
+    ) {
+      return null;
+    }
+
+    return imageUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function collectImages(
+  $: cheerio.CheerioAPI,
+  pageUrl: string,
+  pageTitle: string,
+  pageDescription: string
+) {
+  const images = new Map<
+    string,
+    ImageCandidate
+  >();
+
+  function addImage(
+    rawUrl: string | undefined,
+    rawTitle: string,
+    rawDescription: string
+  ) {
+    if (
+      !rawUrl ||
+      images.size >= MAX_IMAGES_PER_PAGE
+    ) {
+      return;
+    }
+
+    const imageUrl = createImageUrl(
+      rawUrl,
+      pageUrl
+    );
+
+    if (!imageUrl || images.has(imageUrl)) {
+      return;
+    }
+
+    const title =
+      cleanText(rawTitle) ||
+      pageTitle ||
+      "Image";
+
+    const description =
+      cleanText(rawDescription) ||
+      pageDescription ||
+      `Image from ${pageTitle}`;
+
+    images.set(imageUrl, {
+      url: imageUrl,
+      title: title.slice(0, 500),
+      description:
+        description.slice(0, 1_000),
+    });
+  }
+
+  addImage(
+    $('meta[property="og:image"]').attr(
+      "content"
+    ),
+    $('meta[property="og:image:alt"]').attr(
+      "content"
+    ) || pageTitle,
+    pageDescription
+  );
+
+  addImage(
+    $('meta[name="twitter:image"]').attr(
+      "content"
+    ),
+    $(
+      'meta[name="twitter:image:alt"]'
+    ).attr("content") || pageTitle,
+    pageDescription
+  );
+
+  $("img").each((_, element) => {
+    if (images.size >= MAX_IMAGES_PER_PAGE) {
+      return;
+    }
+
+    const image = $(element);
+
+    const rawUrl =
+      image.attr("src") ||
+      image.attr("data-src") ||
+      image.attr("data-lazy-src");
+
+    const altText =
+      image.attr("alt") || "";
+
+    const imageTitle =
+      image.attr("title") || "";
+
+    const width = Number(
+      image.attr("width") || "0"
+    );
+
+    const height = Number(
+      image.attr("height") || "0"
+    );
+
+    if (
+      (width > 0 && width < 100) ||
+      (height > 0 && height < 100)
+    ) {
+      return;
+    }
+
+    addImage(
+      rawUrl,
+      altText || imageTitle || pageTitle,
+      pageDescription
+    );
+  });
+
+  return Array.from(images.values());
 }
 
 export async function crawlWebsite(
@@ -283,6 +437,7 @@ export async function crawlWebsite(
         result.skipped.push(
           `${currentUrl} (blocked by robots.txt)`
         );
+
         continue;
       }
 
@@ -306,6 +461,7 @@ export async function crawlWebsite(
         result.skipped.push(
           `${currentUrl} (not an HTML page)`
         );
+
         continue;
       }
 
@@ -322,6 +478,7 @@ export async function crawlWebsite(
         result.skipped.push(
           `${currentUrl} (page is too large)`
         );
+
         continue;
       }
 
@@ -336,14 +493,11 @@ export async function crawlWebsite(
         result.skipped.push(
           `${currentUrl} (page is too large)`
         );
+
         continue;
       }
 
       const $ = cheerio.load(html);
-
-      $(
-        "script, style, noscript, svg, iframe"
-      ).remove();
 
       const title =
         cleanText(
@@ -353,8 +507,23 @@ export async function crawlWebsite(
       const description = cleanText(
         $('meta[name="description"]').attr(
           "content"
-        ) || ""
+        ) ||
+          $(
+            'meta[property="og:description"]'
+          ).attr("content") ||
+          ""
       );
+
+      const images = collectImages(
+        $,
+        currentUrl,
+        title,
+        description
+      );
+
+      $(
+        "script, style, noscript, svg, iframe"
+      ).remove();
 
       const content = cleanText(
         $("body").text()
@@ -372,6 +541,36 @@ export async function crawlWebsite(
       });
 
       result.indexed.push(currentUrl);
+
+      for (const image of images) {
+        try {
+          await saveIndexedPage({
+            url: image.url,
+            hostname:
+              parsedUrl.hostname,
+            title: image.title,
+            description:
+              image.description,
+            content: cleanText(
+              `${image.title} ${image.description} ${title} ${currentUrl}`
+            ).slice(0, 100_000),
+            category: "images",
+          });
+
+          result.indexed.push(
+            image.url
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Unknown image indexing error";
+
+          result.errors.push(
+            `${image.url}: ${message}`
+          );
+        }
+      }
 
       $("a[href]").each(
         (_, element) => {

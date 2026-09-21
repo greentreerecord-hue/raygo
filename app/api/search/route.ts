@@ -2,7 +2,10 @@ import {
   getLatestCategoryPages,
   searchIndexedPages,
 } from "@/app/lib/crawler-db";
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,10 +18,14 @@ const allowedCategories = new Set([
   "music",
 ]);
 
-export async function GET(request: NextRequest) {
+export async function GET(
+  request: NextRequest
+) {
   try {
     const query =
-      request.nextUrl.searchParams.get("q")?.trim() || "";
+      request.nextUrl.searchParams
+        .get("q")
+        ?.trim() || "";
 
     const category =
       request.nextUrl.searchParams
@@ -31,14 +38,20 @@ export async function GET(request: NextRequest) {
       !allowedCategories.has(category)
     ) {
       return NextResponse.json(
-        { error: "Invalid search category." },
+        {
+          error:
+            "Invalid search category.",
+        },
         { status: 400 }
       );
     }
 
     if (query.length > 200) {
       return NextResponse.json(
-        { error: "Search text is too long." },
+        {
+          error:
+            "Search text is too long.",
+        },
         { status: 400 }
       );
     }
@@ -57,7 +70,9 @@ export async function GET(request: NextRequest) {
           query,
           category || undefined
         )
-      : await getLatestCategoryPages(category);
+      : await getLatestCategoryPages(
+          category
+        );
 
     return NextResponse.json({
       query,
@@ -66,12 +81,23 @@ export async function GET(request: NextRequest) {
       results,
     });
   } catch (error) {
-    console.error("RayGo search error:", error);
+    console.error(
+      "RayGo search error:",
+      error
+    );
+
+    const details =
+      error instanceof Error
+        ? error.message
+        : "Unknown search error";
 
     return NextResponse.json(
       {
         error:
-          "RayGo search is temporarily unavailable.",
+          process.env.NODE_ENV ===
+          "development"
+            ? `RayGo search error: ${details}`
+            : "RayGo search is temporarily unavailable.",
       },
       { status: 500 }
     );
