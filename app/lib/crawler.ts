@@ -4,7 +4,8 @@ import { isIP } from "net";
 import robotsParser from "robots-parser";
 import { saveIndexedPage } from "./crawler-db";
 
-const USER_AGENT = "RayGoBot/1.0 (+https://raygoes.com)";
+const USER_AGENT =
+  "RayGoBot/1.0 (+https://raygoes.com)";
 const MAX_PAGES = 5;
 const MAX_REDIRECTS = 5;
 const MAX_CONTENT_BYTES = 2_000_000;
@@ -27,11 +28,16 @@ function isPrivateIp(address: string) {
       first === 0 ||
       first === 10 ||
       first === 127 ||
-      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 100 &&
+        second >= 64 &&
+        second <= 127) ||
       (first === 169 && second === 254) ||
-      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 172 &&
+        second >= 16 &&
+        second <= 31) ||
       (first === 192 && second === 168) ||
-      (first === 198 && (second === 18 || second === 19)) ||
+      (first === 198 &&
+        (second === 18 || second === 19)) ||
       first >= 224
     );
   }
@@ -58,12 +64,19 @@ function isPrivateIp(address: string) {
 async function validatePublicUrl(value: string) {
   const url = new URL(value);
 
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Only public HTTP and HTTPS pages are allowed.");
+  if (
+    url.protocol !== "https:" &&
+    url.protocol !== "http:"
+  ) {
+    throw new Error(
+      "Only public HTTP and HTTPS pages are allowed."
+    );
   }
 
   if (url.username || url.password) {
-    throw new Error("URLs containing usernames or passwords are not allowed.");
+    throw new Error(
+      "URLs containing usernames or passwords are not allowed."
+    );
   }
 
   if (
@@ -71,7 +84,9 @@ async function validatePublicUrl(value: string) {
     url.hostname.endsWith(".local") ||
     url.hostname.endsWith(".internal")
   ) {
-    throw new Error("Private network addresses are not allowed.");
+    throw new Error(
+      "Private network addresses are not allowed."
+    );
   }
 
   if (
@@ -79,7 +94,9 @@ async function validatePublicUrl(value: string) {
     url.port !== "80" &&
     url.port !== "443"
   ) {
-    throw new Error("Only standard web ports are allowed.");
+    throw new Error(
+      "Only standard web ports are allowed."
+    );
   }
 
   const addresses = await lookup(url.hostname, {
@@ -89,21 +106,28 @@ async function validatePublicUrl(value: string) {
 
   if (
     addresses.length === 0 ||
-    addresses.some((result) => isPrivateIp(result.address))
+    addresses.some((result) =>
+      isPrivateIp(result.address)
+    )
   ) {
-    throw new Error("The website resolves to a private or unsafe address.");
+    throw new Error(
+      "The website resolves to a private or unsafe address."
+    );
   }
 
   return url;
 }
 
-async function fetchPublicPage(
+export async function fetchPublicPage(
   startingUrl: string,
   redirectCount = 0
 ): Promise<Response> {
-  const safeUrl = await validatePublicUrl(startingUrl);
+  const safeUrl = await validatePublicUrl(
+    startingUrl
+  );
 
   const controller = new AbortController();
+
   const timeout = setTimeout(
     () => controller.abort(),
     REQUEST_TIMEOUT_MS
@@ -113,7 +137,6 @@ async function fetchPublicPage(
     const response = await fetch(safeUrl, {
       headers: {
         "User-Agent": USER_AGENT,
-        Accept: "text/html,application/xhtml+xml",
       },
       redirect: "manual",
       signal: controller.signal,
@@ -126,7 +149,9 @@ async function fetchPublicPage(
       response.headers.get("location")
     ) {
       if (redirectCount >= MAX_REDIRECTS) {
-        throw new Error("The website redirected too many times.");
+        throw new Error(
+          "The website redirected too many times."
+        );
       }
 
       const redirectedUrl = new URL(
@@ -146,11 +171,17 @@ async function fetchPublicPage(
   }
 }
 
-async function websiteAllowsCrawler(pageUrl: URL) {
-  const robotsUrl = new URL("/robots.txt", pageUrl.origin).toString();
+async function websiteAllowsCrawler(
+  pageUrl: URL
+) {
+  const robotsUrl = new URL(
+    "/robots.txt",
+    pageUrl.origin
+  ).toString();
 
   try {
-    const response = await fetchPublicPage(robotsUrl);
+    const response =
+      await fetchPublicPage(robotsUrl);
 
     if (response.status === 404) {
       return true;
@@ -161,9 +192,17 @@ async function websiteAllowsCrawler(pageUrl: URL) {
     }
 
     const text = await response.text();
-    const robots = robotsParser(robotsUrl, text);
+    const robots = robotsParser(
+      robotsUrl,
+      text
+    );
 
-    return robots.isAllowed(pageUrl.toString(), USER_AGENT) !== false;
+    return (
+      robots.isAllowed(
+        pageUrl.toString(),
+        USER_AGENT
+      ) !== false
+    );
   } catch {
     return false;
   }
@@ -173,7 +212,10 @@ function cleanText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function canCrawlLink(url: URL, approvedHostname: string) {
+function canCrawlLink(
+  url: URL,
+  approvedHostname: string
+) {
   const pathname = url.pathname.toLowerCase();
 
   const blockedFile =
@@ -182,14 +224,19 @@ function canCrawlLink(url: URL, approvedHostname: string) {
     );
 
   return (
-    (url.protocol === "https:" || url.protocol === "http:") &&
+    (url.protocol === "https:" ||
+      url.protocol === "http:") &&
     url.hostname === approvedHostname &&
     !blockedFile
   );
 }
 
-export async function crawlWebsite(seedUrl: string): Promise<CrawlResult> {
-  const seed = await validatePublicUrl(seedUrl);
+export async function crawlWebsite(
+  seedUrl: string
+): Promise<CrawlResult> {
+  const seed = await validatePublicUrl(
+    seedUrl
+  );
 
   seed.hash = "";
 
@@ -203,7 +250,10 @@ export async function crawlWebsite(seedUrl: string): Promise<CrawlResult> {
     errors: [],
   };
 
-  while (queue.length > 0 && visited.size < MAX_PAGES) {
+  while (
+    queue.length > 0 &&
+    visited.size < MAX_PAGES
+  ) {
     const currentUrl = queue.shift()!;
 
     if (visited.has(currentUrl)) {
@@ -213,102 +263,170 @@ export async function crawlWebsite(seedUrl: string): Promise<CrawlResult> {
     visited.add(currentUrl);
 
     try {
-      const parsedUrl = await validatePublicUrl(currentUrl);
+      const parsedUrl =
+        await validatePublicUrl(currentUrl);
 
-      if (parsedUrl.hostname !== approvedHostname) {
+      if (
+        parsedUrl.hostname !==
+        approvedHostname
+      ) {
         result.skipped.push(currentUrl);
         continue;
       }
 
-      const allowed = await websiteAllowsCrawler(parsedUrl);
+      const allowed =
+        await websiteAllowsCrawler(
+          parsedUrl
+        );
 
       if (!allowed) {
-        result.skipped.push(`${currentUrl} (blocked by robots.txt)`);
+        result.skipped.push(
+          `${currentUrl} (blocked by robots.txt)`
+        );
         continue;
       }
 
-      const response = await fetchPublicPage(currentUrl);
+      const response =
+        await fetchPublicPage(currentUrl);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(
+          `HTTP ${response.status}`
+        );
       }
 
-      const contentType = response.headers.get("content-type") || "";
+      const contentType =
+        response.headers.get(
+          "content-type"
+        ) || "";
 
-      if (!contentType.includes("text/html")) {
-        result.skipped.push(`${currentUrl} (not an HTML page)`);
+      if (
+        !contentType.includes("text/html")
+      ) {
+        result.skipped.push(
+          `${currentUrl} (not an HTML page)`
+        );
         continue;
       }
 
       const contentLength = Number(
-        response.headers.get("content-length") || "0"
+        response.headers.get(
+          "content-length"
+        ) || "0"
       );
 
-      if (contentLength > MAX_CONTENT_BYTES) {
-        result.skipped.push(`${currentUrl} (page is too large)`);
+      if (
+        contentLength >
+        MAX_CONTENT_BYTES
+      ) {
+        result.skipped.push(
+          `${currentUrl} (page is too large)`
+        );
         continue;
       }
 
       const html = await response.text();
 
-      if (Buffer.byteLength(html, "utf8") > MAX_CONTENT_BYTES) {
-        result.skipped.push(`${currentUrl} (page is too large)`);
+      if (
+        Buffer.byteLength(
+          html,
+          "utf8"
+        ) > MAX_CONTENT_BYTES
+      ) {
+        result.skipped.push(
+          `${currentUrl} (page is too large)`
+        );
         continue;
       }
 
       const $ = cheerio.load(html);
 
-      $("script, style, noscript, svg, iframe").remove();
+      $(
+        "script, style, noscript, svg, iframe"
+      ).remove();
 
-      const title = cleanText($("title").first().text()) || parsedUrl.hostname;
+      const title =
+        cleanText(
+          $("title").first().text()
+        ) || parsedUrl.hostname;
 
       const description = cleanText(
-        $('meta[name="description"]').attr("content") || ""
+        $('meta[name="description"]').attr(
+          "content"
+        ) || ""
       );
 
-      const content = cleanText($("body").text()).slice(0, 100_000);
+      const content = cleanText(
+        $("body").text()
+      ).slice(0, 100_000);
 
       await saveIndexedPage({
         url: currentUrl,
-        hostname: parsedUrl.hostname,
+        hostname:
+          parsedUrl.hostname,
         title: title.slice(0, 500),
-        description: description.slice(0, 1_000),
+        description:
+          description.slice(0, 1_000),
         content,
+        category: "web",
       });
 
       result.indexed.push(currentUrl);
 
-      $("a[href]").each((_, element) => {
-        if (queue.length + visited.size >= MAX_PAGES * 4) {
-          return;
-        }
-
-        const href = $(element).attr("href");
-
-        if (!href) {
-          return;
-        }
-
-        try {
-          const discoveredUrl = new URL(href, currentUrl);
-          discoveredUrl.hash = "";
-
+      $("a[href]").each(
+        (_, element) => {
           if (
-            canCrawlLink(discoveredUrl, approvedHostname) &&
-            !visited.has(discoveredUrl.toString()) &&
-            !queue.includes(discoveredUrl.toString())
+            queue.length +
+              visited.size >=
+            MAX_PAGES * 4
           ) {
-            queue.push(discoveredUrl.toString());
+            return;
           }
-        } catch {
-          // Ignore invalid links.
+
+          const href = $(element).attr(
+            "href"
+          );
+
+          if (!href) {
+            return;
+          }
+
+          try {
+            const discoveredUrl =
+              new URL(href, currentUrl);
+
+            discoveredUrl.hash = "";
+
+            if (
+              canCrawlLink(
+                discoveredUrl,
+                approvedHostname
+              ) &&
+              !visited.has(
+                discoveredUrl.toString()
+              ) &&
+              !queue.includes(
+                discoveredUrl.toString()
+              )
+            ) {
+              queue.push(
+                discoveredUrl.toString()
+              );
+            }
+          } catch {
+            // Ignore invalid links.
+          }
         }
-      });
+      );
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown crawler error";
+        error instanceof Error
+          ? error.message
+          : "Unknown crawler error";
 
-      result.errors.push(`${currentUrl}: ${message}`);
+      result.errors.push(
+        `${currentUrl}: ${message}`
+      );
     }
   }
 
