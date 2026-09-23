@@ -4,13 +4,16 @@ import { isIP } from "net";
 import robotsParser from "robots-parser";
 import { saveIndexedPage } from "./crawler-db";
 
-const USER_AGENT = "RayGoBot/1.0 (+https://raygoes.com)";
+const USER_AGENT =
+  "RayGoBot/1.0 (+https://raygoes.com)";
+
 const MAX_PAGES = 5;
 const MAX_REDIRECTS = 5;
 const MAX_CONTENT_BYTES = 2_000_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_IMAGES_PER_PAGE = 10;
 const MAX_VIDEOS_PER_PAGE = 10;
+const MAX_AUDIO_PER_PAGE = 10;
 
 type CrawlResult = {
   indexed: string[];
@@ -18,13 +21,7 @@ type CrawlResult = {
   errors: string[];
 };
 
-type ImageCandidate = {
-  url: string;
-  title: string;
-  description: string;
-};
-
-type VideoCandidate = {
+type MediaCandidate = {
   url: string;
   title: string;
   description: string;
@@ -41,9 +38,13 @@ function isPrivateIp(address: string) {
       first === 0 ||
       first === 10 ||
       first === 127 ||
-      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 100 &&
+        second >= 64 &&
+        second <= 127) ||
       (first === 169 && second === 254) ||
-      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 172 &&
+        second >= 16 &&
+        second <= 31) ||
       (first === 192 && second === 168) ||
       (first === 198 &&
         (second === 18 || second === 19)) ||
@@ -63,7 +64,9 @@ function isPrivateIp(address: string) {
       normalized.startsWith("feb") ||
       normalized.startsWith("::ffff:127.") ||
       normalized.startsWith("::ffff:10.") ||
-      normalized.startsWith("::ffff:192.168.")
+      normalized.startsWith(
+        "::ffff:192.168."
+      )
     );
   }
 
@@ -131,7 +134,8 @@ export async function fetchPublicPage(
   startingUrl: string,
   redirectCount = 0
 ): Promise<Response> {
-  const safeUrl = await validatePublicUrl(startingUrl);
+  const safeUrl =
+    await validatePublicUrl(startingUrl);
 
   const controller = new AbortController();
 
@@ -181,7 +185,9 @@ export async function fetchPublicPage(
   }
 }
 
-async function websiteAllowsCrawler(pageUrl: URL) {
+async function websiteAllowsCrawler(
+  pageUrl: URL
+) {
   const robotsUrl = new URL(
     "/robots.txt",
     pageUrl.origin
@@ -228,7 +234,7 @@ function canCrawlLink(
   const pathname = url.pathname.toLowerCase();
 
   const blockedFile =
-    /\.(jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|mp3|wav|ogg|m4a|mp4|webm|mov|m4v|avi|css|js)$/i.test(
+    /\.(jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|mp3|wav|ogg|m4a|aac|flac|opus|mp4|webm|mov|m4v|avi|css|js)$/i.test(
       pathname
     );
 
@@ -277,12 +283,52 @@ function createMediaUrl(
   }
 }
 
+function titleFromMediaUrl(
+  mediaUrl: string,
+  suppliedTitle: string,
+  fallbackTitle: string
+) {
+  const cleanedTitle =
+    cleanText(suppliedTitle);
+
+  if (
+    cleanedTitle &&
+    cleanedTitle.toLowerCase() !== "next.js"
+  ) {
+    return cleanedTitle;
+  }
+
+  try {
+    const pathname = new URL(mediaUrl).pathname;
+    const filename =
+      pathname.split("/").pop() || "";
+
+    const decodedName = decodeURIComponent(
+      filename
+    )
+      .replace(
+        /\.(mp3|wav|ogg|m4a|aac|flac|opus|mp4|webm|mov|m4v)$/i,
+        ""
+      )
+      .replace(/[-_]+/g, " ")
+      .trim();
+
+    if (decodedName) {
+      return decodedName;
+    }
+  } catch {
+    // Use the fallback title.
+  }
+
+  return fallbackTitle;
+}
+
 function collectImages(
   $: cheerio.CheerioAPI,
   pageUrl: string,
   pageTitle: string
 ) {
-  const images: ImageCandidate[] = [];
+  const images: MediaCandidate[] = [];
   const seen = new Set<string>();
 
   function addImage(
@@ -290,7 +336,9 @@ function collectImages(
     title = "",
     description = ""
   ) {
-    if (images.length >= MAX_IMAGES_PER_PAGE) {
+    if (
+      images.length >= MAX_IMAGES_PER_PAGE
+    ) {
       return;
     }
 
@@ -341,7 +389,9 @@ function collectImages(
   );
 
   $("img").each((_, element) => {
-    if (images.length >= MAX_IMAGES_PER_PAGE) {
+    if (
+      images.length >= MAX_IMAGES_PER_PAGE
+    ) {
       return;
     }
 
@@ -391,7 +441,7 @@ function collectVideos(
   pageTitle: string,
   pageDescription: string
 ) {
-  const videos: VideoCandidate[] = [];
+  const videos: MediaCandidate[] = [];
   const seen = new Set<string>();
 
   function addVideo(
@@ -399,7 +449,9 @@ function collectVideos(
     title = "",
     description = ""
   ) {
-    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+    if (
+      videos.length >= MAX_VIDEOS_PER_PAGE
+    ) {
       return;
     }
 
@@ -414,28 +466,29 @@ function collectVideos(
 
     seen.add(videoUrl);
 
-    const cleanTitle =
-      cleanText(title) ||
-      pageTitle ||
-      "RayGo Video";
+    const videoTitle = titleFromMediaUrl(
+      videoUrl,
+      title,
+      pageTitle || "RayGo Video"
+    );
 
-    const cleanDescription =
+    const videoDescription =
       cleanText(description) ||
       pageDescription ||
       `Video from ${pageTitle}`;
 
     videos.push({
       url: videoUrl,
-      title: cleanTitle.slice(0, 500),
+      title: videoTitle.slice(0, 500),
       description:
-        cleanDescription.slice(0, 1_000),
+        videoDescription.slice(0, 1_000),
     });
   }
 
   const openGraphVideo =
-    $('meta[property="og:video:secure_url"]').attr(
-      "content"
-    ) ||
+    $(
+      'meta[property="og:video:secure_url"]'
+    ).attr("content") ||
     $('meta[property="og:video:url"]').attr(
       "content"
     ) ||
@@ -466,7 +519,9 @@ function collectVideos(
   );
 
   $("video").each((_, element) => {
-    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+    if (
+      videos.length >= MAX_VIDEOS_PER_PAGE
+    ) {
       return;
     }
 
@@ -495,11 +550,14 @@ function collectVideos(
   });
 
   $("source[src]").each((_, element) => {
-    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+    if (
+      videos.length >= MAX_VIDEOS_PER_PAGE
+    ) {
       return;
     }
 
     const source = $(element);
+
     const type = (
       source.attr("type") || ""
     ).toLowerCase();
@@ -508,7 +566,9 @@ function collectVideos(
 
     const looksLikeVideo =
       type.startsWith("video/") ||
-      /\.(mp4|webm|mov|m4v)(\?|$)/i.test(src);
+      /\.(mp4|webm|mov|m4v)(\?|$)/i.test(
+        src
+      );
 
     if (looksLikeVideo) {
       addVideo(
@@ -520,7 +580,9 @@ function collectVideos(
   });
 
   $("a[href]").each((_, element) => {
-    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+    if (
+      videos.length >= MAX_VIDEOS_PER_PAGE
+    ) {
       return;
     }
 
@@ -547,10 +609,173 @@ function collectVideos(
   return videos;
 }
 
+function collectAudio(
+  $: cheerio.CheerioAPI,
+  pageUrl: string,
+  pageTitle: string,
+  pageDescription: string
+) {
+  const audioFiles: MediaCandidate[] = [];
+  const seen = new Set<string>();
+
+  function addAudio(
+    source: string | undefined,
+    title = "",
+    description = ""
+  ) {
+    if (
+      audioFiles.length >= MAX_AUDIO_PER_PAGE
+    ) {
+      return;
+    }
+
+    const audioUrl = createMediaUrl(
+      source,
+      pageUrl
+    );
+
+    if (!audioUrl || seen.has(audioUrl)) {
+      return;
+    }
+
+    seen.add(audioUrl);
+
+    const audioTitle = titleFromMediaUrl(
+      audioUrl,
+      title,
+      pageTitle || "RayGo Music"
+    );
+
+    const audioDescription =
+      cleanText(description) ||
+      pageDescription ||
+      `Music from ${pageTitle}`;
+
+    audioFiles.push({
+      url: audioUrl,
+      title: audioTitle.slice(0, 500),
+      description:
+        audioDescription.slice(0, 1_000),
+    });
+  }
+
+  const openGraphAudio =
+    $(
+      'meta[property="og:audio:secure_url"]'
+    ).attr("content") ||
+    $('meta[property="og:audio:url"]').attr(
+      "content"
+    ) ||
+    $('meta[property="og:audio"]').attr(
+      "content"
+    );
+
+  addAudio(
+    openGraphAudio,
+    $('meta[property="og:title"]').attr(
+      "content"
+    ) || pageTitle,
+    $('meta[property="og:description"]').attr(
+      "content"
+    ) || pageDescription
+  );
+
+  $("audio").each((_, element) => {
+    if (
+      audioFiles.length >= MAX_AUDIO_PER_PAGE
+    ) {
+      return;
+    }
+
+    const audio = $(element);
+
+    const title =
+      cleanText(
+        audio.attr("title") || ""
+      ) || pageTitle;
+
+    addAudio(
+      audio.attr("src"),
+      title,
+      pageDescription
+    );
+
+    audio.find("source[src]").each(
+      (_, sourceElement) => {
+        addAudio(
+          $(sourceElement).attr("src"),
+          title,
+          pageDescription
+        );
+      }
+    );
+  });
+
+  $("source[src]").each((_, element) => {
+    if (
+      audioFiles.length >= MAX_AUDIO_PER_PAGE
+    ) {
+      return;
+    }
+
+    const source = $(element);
+
+    const type = (
+      source.attr("type") || ""
+    ).toLowerCase();
+
+    const src = source.attr("src") || "";
+
+    const looksLikeAudio =
+      type.startsWith("audio/") ||
+      /\.(mp3|wav|ogg|m4a|aac|flac|opus)(\?|$)/i.test(
+        src
+      );
+
+    if (looksLikeAudio) {
+      addAudio(
+        src,
+        pageTitle,
+        pageDescription
+      );
+    }
+  });
+
+  $("a[href]").each((_, element) => {
+    if (
+      audioFiles.length >= MAX_AUDIO_PER_PAGE
+    ) {
+      return;
+    }
+
+    const link = $(element);
+    const href = link.attr("href") || "";
+
+    if (
+      !/\.(mp3|wav|ogg|m4a|aac|flac|opus)(\?|$)/i.test(
+        href
+      )
+    ) {
+      return;
+    }
+
+    const linkText = cleanText(link.text());
+
+    addAudio(
+      href,
+      linkText || pageTitle,
+      pageDescription
+    );
+  });
+
+  return audioFiles;
+}
+
 export async function crawlWebsite(
   seedUrl: string
 ): Promise<CrawlResult> {
-  const seed = await validatePublicUrl(seedUrl);
+  const seed =
+    await validatePublicUrl(seedUrl);
 
   seed.hash = "";
 
@@ -581,7 +806,8 @@ export async function crawlWebsite(
         await validatePublicUrl(currentUrl);
 
       if (
-        parsedUrl.hostname !== approvedHostname
+        parsedUrl.hostname !==
+        approvedHostname
       ) {
         result.skipped.push(currentUrl);
         continue;
@@ -610,7 +836,9 @@ export async function crawlWebsite(
         response.headers.get("content-type") ||
         "";
 
-      if (!contentType.includes("text/html")) {
+      if (
+        !contentType.includes("text/html")
+      ) {
         result.skipped.push(
           `${currentUrl} (not an HTML page)`
         );
@@ -623,7 +851,9 @@ export async function crawlWebsite(
         ) || "0"
       );
 
-      if (contentLength > MAX_CONTENT_BYTES) {
+      if (
+        contentLength > MAX_CONTENT_BYTES
+      ) {
         result.skipped.push(
           `${currentUrl} (page is too large)`
         );
@@ -653,9 +883,9 @@ export async function crawlWebsite(
         $('meta[name="description"]').attr(
           "content"
         ) ||
-          $('meta[property="og:description"]').attr(
-            "content"
-          ) ||
+          $(
+            'meta[property="og:description"]'
+          ).attr("content") ||
           ""
       );
 
@@ -666,6 +896,13 @@ export async function crawlWebsite(
       );
 
       const videos = collectVideos(
+        $,
+        currentUrl,
+        title,
+        description
+      );
+
+      const audioFiles = collectAudio(
         $,
         currentUrl,
         title,
@@ -722,6 +959,21 @@ export async function crawlWebsite(
         });
       }
 
+      for (const audio of audioFiles) {
+        const audioHostname = new URL(
+          audio.url
+        ).hostname;
+
+        await saveIndexedPage({
+          url: audio.url,
+          hostname: audioHostname,
+          title: audio.title,
+          description: audio.description,
+          content: `${audio.title} ${audio.description} ${title}`,
+          category: "music",
+        });
+      }
+
       $("a[href]").each((_, element) => {
         if (
           queue.length + visited.size >=
@@ -752,8 +1004,12 @@ export async function crawlWebsite(
               discoveredUrl,
               approvedHostname
             ) &&
-            !visited.has(discoveredString) &&
-            !queue.includes(discoveredString)
+            !visited.has(
+              discoveredString
+            ) &&
+            !queue.includes(
+              discoveredString
+            )
           ) {
             queue.push(discoveredString);
           }
