@@ -14,6 +14,8 @@ type ActionResult = {
   errors?: string[];
 };
 
+type ActionType = "crawler" | "news" | "music";
+
 export default function CrawlerDashboardPage() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [feedUrl, setFeedUrl] = useState("");
@@ -21,14 +23,13 @@ export default function CrawlerDashboardPage() {
 
   const [message, setMessage] = useState("");
   const [resultLinks, setResultLinks] = useState<string[]>([]);
-  const [working, setWorking] = useState<
-    "crawler" | "news" | null
-  >(null);
+  const [working, setWorking] =
+    useState<ActionType | null>(null);
 
   async function sendRequest(
     endpoint: string,
     body: Record<string, string>,
-    action: "crawler" | "news"
+    action: ActionType
   ) {
     const secret = crawlerSecret.trim();
 
@@ -55,7 +56,8 @@ export default function CrawlerDashboardPage() {
 
       if (!response.ok) {
         throw new Error(
-          data.error || "The request could not be completed."
+          data.error ||
+            "The request could not be completed."
         );
       }
 
@@ -71,6 +73,12 @@ export default function CrawlerDashboardPage() {
           `Success! RayGo imported ${
             data.importedCount ?? links.length
           } news article(s).`
+        );
+      } else if (action === "music") {
+        setMessage(
+          `Success! RayGo imported ${
+            data.importedCount ?? links.length
+          } music release(s).`
         );
       } else {
         setMessage(
@@ -118,7 +126,9 @@ export default function CrawlerDashboardPage() {
     const url = feedUrl.trim();
 
     if (!url) {
-      setMessage("Enter a public RSS or Atom feed URL.");
+      setMessage(
+        "Enter a public RSS or Atom feed URL."
+      );
       return;
     }
 
@@ -126,6 +136,18 @@ export default function CrawlerDashboardPage() {
       "/api/news/import",
       { feedUrl: url },
       "news"
+    );
+  }
+
+  async function importMusic(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    await sendRequest(
+      "/api/music/import",
+      {},
+      "music"
     );
   }
 
@@ -141,11 +163,13 @@ export default function CrawlerDashboardPage() {
               className="text-3xl font-black tracking-tight"
             >
               <span className="text-blue-600">Ray</span>
-              <span className="text-emerald-500">Go</span>
+              <span className="text-emerald-500">
+                Go
+              </span>
             </Link>
 
             <p className="mt-1 text-slate-600">
-              Crawler and News Dashboard
+              Crawler, News and Music Dashboard
             </p>
           </div>
 
@@ -163,7 +187,8 @@ export default function CrawlerDashboardPage() {
           </h1>
 
           <p className="mt-2 text-slate-600">
-            Add websites and news feeds to the RayGo search
+            Add websites, news feeds and approved
+            Ray&apos;sStream music to the RayGo search
             index.
           </p>
 
@@ -286,6 +311,47 @@ export default function CrawlerDashboardPage() {
               {working === "news"
                 ? "Importing News..."
                 : "Import News Feed"}
+            </button>
+          </form>
+        </section>
+
+        <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl sm:p-8">
+          <div className="mb-5">
+            <p className="font-bold text-violet-600">
+              RayGo Music
+            </p>
+
+            <h2 className="text-2xl font-black">
+              Import Ray&apos;sStream Music
+            </h2>
+
+            <p className="mt-1 text-slate-600">
+              Import approved releases from the
+              Ray&apos;sStream Music Shop into RayGo Music.
+              Search results send listeners to the shop
+              without exposing private purchase links.
+            </p>
+          </div>
+
+          <form onSubmit={importMusic}>
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-violet-900">
+              <p className="font-bold">
+                Source
+              </p>
+
+              <p className="mt-1 break-all text-sm">
+                https://raysstream.com/api/music-shop
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={working !== null}
+              className="mt-5 w-full rounded-2xl bg-violet-600 px-6 py-3 text-lg font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {working === "music"
+                ? "Importing Music..."
+                : "Import Ray'sStream Music"}
             </button>
           </form>
         </section>
