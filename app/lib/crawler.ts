@@ -4,14 +4,13 @@ import { isIP } from "net";
 import robotsParser from "robots-parser";
 import { saveIndexedPage } from "./crawler-db";
 
-const USER_AGENT =
-  "RayGoBot/1.0 (+https://raygoes.com)";
-
+const USER_AGENT = "RayGoBot/1.0 (+https://raygoes.com)";
 const MAX_PAGES = 5;
-const MAX_IMAGES_PER_PAGE = 10;
 const MAX_REDIRECTS = 5;
 const MAX_CONTENT_BYTES = 2_000_000;
 const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_IMAGES_PER_PAGE = 10;
+const MAX_VIDEOS_PER_PAGE = 10;
 
 type CrawlResult = {
   indexed: string[];
@@ -20,6 +19,12 @@ type CrawlResult = {
 };
 
 type ImageCandidate = {
+  url: string;
+  title: string;
+  description: string;
+};
+
+type VideoCandidate = {
   url: string;
   title: string;
   description: string;
@@ -36,13 +41,9 @@ function isPrivateIp(address: string) {
       first === 0 ||
       first === 10 ||
       first === 127 ||
-      (first === 100 &&
-        second >= 64 &&
-        second <= 127) ||
+      (first === 100 && second >= 64 && second <= 127) ||
       (first === 169 && second === 254) ||
-      (first === 172 &&
-        second >= 16 &&
-        second <= 31) ||
+      (first === 172 && second >= 16 && second <= 31) ||
       (first === 192 && second === 168) ||
       (first === 198 &&
         (second === 18 || second === 19)) ||
@@ -130,9 +131,7 @@ export async function fetchPublicPage(
   startingUrl: string,
   redirectCount = 0
 ): Promise<Response> {
-  const safeUrl = await validatePublicUrl(
-    startingUrl
-  );
+  const safeUrl = await validatePublicUrl(startingUrl);
 
   const controller = new AbortController();
 
@@ -151,10 +150,13 @@ export async function fetchPublicPage(
       cache: "no-store",
     });
 
+    const location =
+      response.headers.get("location");
+
     if (
       response.status >= 300 &&
       response.status < 400 &&
-      response.headers.get("location")
+      location
     ) {
       if (redirectCount >= MAX_REDIRECTS) {
         throw new Error(
@@ -163,7 +165,7 @@ export async function fetchPublicPage(
       }
 
       const redirectedUrl = new URL(
-        response.headers.get("location")!,
+        location,
         safeUrl
       );
 
@@ -179,9 +181,7 @@ export async function fetchPublicPage(
   }
 }
 
-async function websiteAllowsCrawler(
-  pageUrl: URL
-) {
+async function websiteAllowsCrawler(pageUrl: URL) {
   const robotsUrl = new URL(
     "/robots.txt",
     pageUrl.origin
@@ -228,7 +228,7 @@ function canCrawlLink(
   const pathname = url.pathname.toLowerCase();
 
   const blockedFile =
-    /\.(jpg|jpeg|png|gif|webp|avif|svg|ico|pdf|zip|mp3|mp4|webm|mov|css|js)$/i.test(
+    /\.(jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|mp3|wav|ogg|m4a|mp4|webm|mov|m4v|avi|css|js)$/i.test(
       pathname
     );
 
@@ -240,33 +240,38 @@ function canCrawlLink(
   );
 }
 
-function createImageUrl(
-  value: string,
+function createMediaUrl(
+  value: string | undefined,
   pageUrl: string
 ) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (
+    !trimmed ||
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("blob:") ||
+    trimmed.startsWith("javascript:")
+  ) {
+    return null;
+  }
+
   try {
-    const imageUrl = new URL(
-      value,
-      pageUrl
-    );
-
-    imageUrl.hash = "";
+    const url = new URL(trimmed, pageUrl);
 
     if (
-      imageUrl.protocol !== "https:" &&
-      imageUrl.protocol !== "http:"
+      url.protocol !== "https:" &&
+      url.protocol !== "http:"
     ) {
       return null;
     }
 
-    if (
-      imageUrl.username ||
-      imageUrl.password
-    ) {
-      return null;
-    }
+    url.hash = "";
 
-    return imageUrl.toString();
+    return url.toString();
   } catch {
     return null;
   }
@@ -275,50 +280,43 @@ function createImageUrl(
 function collectImages(
   $: cheerio.CheerioAPI,
   pageUrl: string,
-  pageTitle: string,
-  pageDescription: string
+  pageTitle: string
 ) {
-  const images = new Map<
-    string,
-    ImageCandidate
-  >();
+  const images: ImageCandidate[] = [];
+  const seen = new Set<string>();
 
   function addImage(
-    rawUrl: string | undefined,
-    rawTitle: string,
-    rawDescription: string
+    source: string | undefined,
+    title = "",
+    description = ""
   ) {
-    if (
-      !rawUrl ||
-      images.size >= MAX_IMAGES_PER_PAGE
-    ) {
+    if (images.length >= MAX_IMAGES_PER_PAGE) {
       return;
     }
 
-    const imageUrl = createImageUrl(
-      rawUrl,
+    const imageUrl = createMediaUrl(
+      source,
       pageUrl
     );
 
-    if (!imageUrl || images.has(imageUrl)) {
+    if (!imageUrl || seen.has(imageUrl)) {
       return;
     }
 
-    const title =
-      cleanText(rawTitle) ||
+    seen.add(imageUrl);
+
+    const cleanTitle =
+      cleanText(title) ||
       pageTitle ||
-      "Image";
+      "RayGo Image";
 
-    const description =
-      cleanText(rawDescription) ||
-      pageDescription ||
-      `Image from ${pageTitle}`;
-
-    images.set(imageUrl, {
+    images.push({
       url: imageUrl,
-      title: title.slice(0, 500),
-      description:
-        description.slice(0, 1_000),
+      title: cleanTitle.slice(0, 500),
+      description: cleanText(
+        description ||
+          `Image from ${pageTitle}`
+      ).slice(0, 1_000),
     });
   }
 
@@ -329,36 +327,25 @@ function collectImages(
     $('meta[property="og:image:alt"]').attr(
       "content"
     ) || pageTitle,
-    pageDescription
+    `Image from ${pageTitle}`
   );
 
   addImage(
     $('meta[name="twitter:image"]').attr(
       "content"
     ),
-    $(
-      'meta[name="twitter:image:alt"]'
-    ).attr("content") || pageTitle,
-    pageDescription
+    $('meta[name="twitter:image:alt"]').attr(
+      "content"
+    ) || pageTitle,
+    `Image from ${pageTitle}`
   );
 
   $("img").each((_, element) => {
-    if (images.size >= MAX_IMAGES_PER_PAGE) {
+    if (images.length >= MAX_IMAGES_PER_PAGE) {
       return;
     }
 
     const image = $(element);
-
-    const rawUrl =
-      image.attr("src") ||
-      image.attr("data-src") ||
-      image.attr("data-lazy-src");
-
-    const altText =
-      image.attr("alt") || "";
-
-    const imageTitle =
-      image.attr("title") || "";
 
     const width = Number(
       image.attr("width") || "0"
@@ -375,22 +362,195 @@ function collectImages(
       return;
     }
 
+    const source =
+      image.attr("src") ||
+      image.attr("data-src") ||
+      image.attr("data-lazy-src");
+
+    const alt = cleanText(
+      image.attr("alt") || ""
+    );
+
+    const imageTitle = cleanText(
+      image.attr("title") || ""
+    );
+
     addImage(
-      rawUrl,
-      altText || imageTitle || pageTitle,
+      source,
+      alt || imageTitle || pageTitle,
+      alt || `Image from ${pageTitle}`
+    );
+  });
+
+  return images;
+}
+
+function collectVideos(
+  $: cheerio.CheerioAPI,
+  pageUrl: string,
+  pageTitle: string,
+  pageDescription: string
+) {
+  const videos: VideoCandidate[] = [];
+  const seen = new Set<string>();
+
+  function addVideo(
+    source: string | undefined,
+    title = "",
+    description = ""
+  ) {
+    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+      return;
+    }
+
+    const videoUrl = createMediaUrl(
+      source,
+      pageUrl
+    );
+
+    if (!videoUrl || seen.has(videoUrl)) {
+      return;
+    }
+
+    seen.add(videoUrl);
+
+    const cleanTitle =
+      cleanText(title) ||
+      pageTitle ||
+      "RayGo Video";
+
+    const cleanDescription =
+      cleanText(description) ||
+      pageDescription ||
+      `Video from ${pageTitle}`;
+
+    videos.push({
+      url: videoUrl,
+      title: cleanTitle.slice(0, 500),
+      description:
+        cleanDescription.slice(0, 1_000),
+    });
+  }
+
+  const openGraphVideo =
+    $('meta[property="og:video:secure_url"]').attr(
+      "content"
+    ) ||
+    $('meta[property="og:video:url"]').attr(
+      "content"
+    ) ||
+    $('meta[property="og:video"]').attr(
+      "content"
+    );
+
+  addVideo(
+    openGraphVideo,
+    $('meta[property="og:title"]').attr(
+      "content"
+    ) || pageTitle,
+    $('meta[property="og:description"]').attr(
+      "content"
+    ) || pageDescription
+  );
+
+  addVideo(
+    $('meta[name="twitter:player:stream"]').attr(
+      "content"
+    ),
+    $('meta[name="twitter:title"]').attr(
+      "content"
+    ) || pageTitle,
+    $('meta[name="twitter:description"]').attr(
+      "content"
+    ) || pageDescription
+  );
+
+  $("video").each((_, element) => {
+    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+      return;
+    }
+
+    const video = $(element);
+
+    const title =
+      cleanText(
+        video.attr("title") || ""
+      ) || pageTitle;
+
+    addVideo(
+      video.attr("src"),
+      title,
+      pageDescription
+    );
+
+    video.find("source[src]").each(
+      (_, sourceElement) => {
+        addVideo(
+          $(sourceElement).attr("src"),
+          title,
+          pageDescription
+        );
+      }
+    );
+  });
+
+  $("source[src]").each((_, element) => {
+    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+      return;
+    }
+
+    const source = $(element);
+    const type = (
+      source.attr("type") || ""
+    ).toLowerCase();
+
+    const src = source.attr("src") || "";
+
+    const looksLikeVideo =
+      type.startsWith("video/") ||
+      /\.(mp4|webm|mov|m4v)(\?|$)/i.test(src);
+
+    if (looksLikeVideo) {
+      addVideo(
+        src,
+        pageTitle,
+        pageDescription
+      );
+    }
+  });
+
+  $("a[href]").each((_, element) => {
+    if (videos.length >= MAX_VIDEOS_PER_PAGE) {
+      return;
+    }
+
+    const link = $(element);
+    const href = link.attr("href") || "";
+
+    if (
+      !/\.(mp4|webm|mov|m4v)(\?|$)/i.test(
+        href
+      )
+    ) {
+      return;
+    }
+
+    const linkText = cleanText(link.text());
+
+    addVideo(
+      href,
+      linkText || pageTitle,
       pageDescription
     );
   });
 
-  return Array.from(images.values());
+  return videos;
 }
 
 export async function crawlWebsite(
   seedUrl: string
 ): Promise<CrawlResult> {
-  const seed = await validatePublicUrl(
-    seedUrl
-  );
+  const seed = await validatePublicUrl(seedUrl);
 
   seed.hash = "";
 
@@ -421,23 +581,19 @@ export async function crawlWebsite(
         await validatePublicUrl(currentUrl);
 
       if (
-        parsedUrl.hostname !==
-        approvedHostname
+        parsedUrl.hostname !== approvedHostname
       ) {
         result.skipped.push(currentUrl);
         continue;
       }
 
       const allowed =
-        await websiteAllowsCrawler(
-          parsedUrl
-        );
+        await websiteAllowsCrawler(parsedUrl);
 
       if (!allowed) {
         result.skipped.push(
           `${currentUrl} (blocked by robots.txt)`
         );
-
         continue;
       }
 
@@ -451,17 +607,13 @@ export async function crawlWebsite(
       }
 
       const contentType =
-        response.headers.get(
-          "content-type"
-        ) || "";
+        response.headers.get("content-type") ||
+        "";
 
-      if (
-        !contentType.includes("text/html")
-      ) {
+      if (!contentType.includes("text/html")) {
         result.skipped.push(
           `${currentUrl} (not an HTML page)`
         );
-
         continue;
       }
 
@@ -471,29 +623,22 @@ export async function crawlWebsite(
         ) || "0"
       );
 
-      if (
-        contentLength >
-        MAX_CONTENT_BYTES
-      ) {
+      if (contentLength > MAX_CONTENT_BYTES) {
         result.skipped.push(
           `${currentUrl} (page is too large)`
         );
-
         continue;
       }
 
       const html = await response.text();
 
       if (
-        Buffer.byteLength(
-          html,
-          "utf8"
-        ) > MAX_CONTENT_BYTES
+        Buffer.byteLength(html, "utf8") >
+        MAX_CONTENT_BYTES
       ) {
         result.skipped.push(
           `${currentUrl} (page is too large)`
         );
-
         continue;
       }
 
@@ -508,13 +653,19 @@ export async function crawlWebsite(
         $('meta[name="description"]').attr(
           "content"
         ) ||
-          $(
-            'meta[property="og:description"]'
-          ).attr("content") ||
+          $('meta[property="og:description"]').attr(
+            "content"
+          ) ||
           ""
       );
 
       const images = collectImages(
+        $,
+        currentUrl,
+        title
+      );
+
+      const videos = collectVideos(
         $,
         currentUrl,
         title,
@@ -531,8 +682,7 @@ export async function crawlWebsite(
 
       await saveIndexedPage({
         url: currentUrl,
-        hostname:
-          parsedUrl.hostname,
+        hostname: parsedUrl.hostname,
         title: title.slice(0, 500),
         description:
           description.slice(0, 1_000),
@@ -543,80 +693,74 @@ export async function crawlWebsite(
       result.indexed.push(currentUrl);
 
       for (const image of images) {
-        try {
-          await saveIndexedPage({
-            url: image.url,
-            hostname:
-              parsedUrl.hostname,
-            title: image.title,
-            description:
-              image.description,
-            content: cleanText(
-              `${image.title} ${image.description} ${title} ${currentUrl}`
-            ).slice(0, 100_000),
-            category: "images",
-          });
+        const imageHostname = new URL(
+          image.url
+        ).hostname;
 
-          result.indexed.push(
-            image.url
-          );
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Unknown image indexing error";
-
-          result.errors.push(
-            `${image.url}: ${message}`
-          );
-        }
+        await saveIndexedPage({
+          url: image.url,
+          hostname: imageHostname,
+          title: image.title,
+          description: image.description,
+          content: `${image.title} ${image.description} ${title}`,
+          category: "images",
+        });
       }
 
-      $("a[href]").each(
-        (_, element) => {
-          if (
-            queue.length +
-              visited.size >=
-            MAX_PAGES * 4
-          ) {
-            return;
-          }
+      for (const video of videos) {
+        const videoHostname = new URL(
+          video.url
+        ).hostname;
 
-          const href = $(element).attr(
-            "href"
+        await saveIndexedPage({
+          url: video.url,
+          hostname: videoHostname,
+          title: video.title,
+          description: video.description,
+          content: `${video.title} ${video.description} ${title}`,
+          category: "videos",
+        });
+      }
+
+      $("a[href]").each((_, element) => {
+        if (
+          queue.length + visited.size >=
+          MAX_PAGES * 4
+        ) {
+          return;
+        }
+
+        const href = $(element).attr("href");
+
+        if (!href) {
+          return;
+        }
+
+        try {
+          const discoveredUrl = new URL(
+            href,
+            currentUrl
           );
 
-          if (!href) {
-            return;
+          discoveredUrl.hash = "";
+
+          const discoveredString =
+            discoveredUrl.toString();
+
+          if (
+            canCrawlLink(
+              discoveredUrl,
+              approvedHostname
+            ) &&
+            !visited.has(discoveredString) &&
+            !queue.includes(discoveredString)
+          ) {
+            queue.push(discoveredString);
           }
-
-          try {
-            const discoveredUrl =
-              new URL(href, currentUrl);
-
-            discoveredUrl.hash = "";
-
-            if (
-              canCrawlLink(
-                discoveredUrl,
-                approvedHostname
-              ) &&
-              !visited.has(
-                discoveredUrl.toString()
-              ) &&
-              !queue.includes(
-                discoveredUrl.toString()
-              )
-            ) {
-              queue.push(
-                discoveredUrl.toString()
-              );
-            }
-          } catch {
-            // Ignore invalid links.
-          }
+        } catch {
+          // Ignore invalid links.
         }
-      );
+      });
     } catch (error) {
       const message =
         error instanceof Error
