@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const RAYSSTREAM_MUSIC_API =
-  "https://raysstream.com/api/music-shop";
+  "https://raysstream.com/api/music";
 
 const RAYSSTREAM_MUSIC_SHOP =
   "https://raysstream.com/music-shop";
@@ -25,15 +25,23 @@ type MusicRelease = {
   published?: boolean;
 };
 
-function secretsMatch(received: string, expected: string) {
+function secretsMatch(
+  received: string,
+  expected: string
+) {
   const receivedBuffer = Buffer.from(received);
   const expectedBuffer = Buffer.from(expected);
 
-  if (receivedBuffer.length !== expectedBuffer.length) {
+  if (
+    receivedBuffer.length !== expectedBuffer.length
+  ) {
     return false;
   }
 
-  return timingSafeEqual(receivedBuffer, expectedBuffer);
+  return timingSafeEqual(
+    receivedBuffer,
+    expectedBuffer
+  );
 }
 
 function cleanText(value: unknown) {
@@ -56,10 +64,10 @@ function getPrice(release: MusicRelease) {
 }
 
 function isApproved(release: MusicRelease) {
-  const status =
-    cleanText(
-      release.reviewStatus || release.review_status
-    ).toLowerCase();
+  const status = cleanText(
+    release.reviewStatus ||
+      release.review_status
+  ).toLowerCase();
 
   if (status && status !== "approved") {
     return false;
@@ -75,7 +83,9 @@ function isApproved(release: MusicRelease) {
   return true;
 }
 
-function readReleases(data: unknown): MusicRelease[] {
+function readReleases(
+  data: unknown
+): MusicRelease[] {
   if (Array.isArray(data)) {
     return data;
   }
@@ -88,7 +98,9 @@ function readReleases(data: unknown): MusicRelease[] {
       (data as { songs?: unknown }).songs
     )
   ) {
-    return (data as { songs: MusicRelease[] }).songs;
+    return (
+      data as { songs: MusicRelease[] }
+    ).songs;
   }
 
   if (
@@ -96,18 +108,23 @@ function readReleases(data: unknown): MusicRelease[] {
     typeof data === "object" &&
     "releases" in data &&
     Array.isArray(
-      (data as { releases?: unknown }).releases
+      (data as { releases?: unknown })
+        .releases
     )
   ) {
     return (
-      data as { releases: MusicRelease[] }
+      data as {
+        releases: MusicRelease[];
+      }
     ).releases;
   }
 
   return [];
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest
+) {
   try {
     const crawlerSecret =
       process.env.RAYGO_CRAWLER_SECRET;
@@ -123,7 +140,9 @@ export async function POST(request: NextRequest) {
     }
 
     const suppliedSecret =
-      request.headers.get("x-crawler-secret") || "";
+      request.headers.get(
+        "x-crawler-secret"
+      ) || "";
 
     if (
       !secretsMatch(
@@ -156,22 +175,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const data: unknown = await response.json();
-    const releases = readReleases(data).filter(
-      isApproved
-    );
+    const data: unknown =
+      await response.json();
+
+    const releases = readReleases(
+      data
+    ).filter(isApproved);
 
     const indexed: string[] = [];
     const skipped: string[] = [];
 
-    for (let index = 0; index < releases.length; index += 1) {
+    for (
+      let index = 0;
+      index < releases.length;
+      index += 1
+    ) {
       const release = releases[index];
 
-      const title = cleanText(release.title);
-      const artist = cleanText(
-        release.artistName || release.artist_name
+      const title = cleanText(
+        release.title
       );
-      const genre = cleanText(release.genre);
+
+      const artist = cleanText(
+        release.artistName ||
+          release.artist_name
+      );
+
+      const genre = cleanText(
+        release.genre
+      );
+
       const price = getPrice(release);
 
       if (!title) {
@@ -184,14 +217,20 @@ export async function POST(request: NextRequest) {
       const releaseId =
         release.id !== undefined
           ? String(release.id)
-          : `${index + 1}-${encodeURIComponent(title)}`;
+          : `${index + 1}-${encodeURIComponent(
+              title
+            )}`;
 
       const resultUrl =
         `${RAYSSTREAM_MUSIC_SHOP}` +
-        `?release=${encodeURIComponent(releaseId)}`;
+        `?release=${encodeURIComponent(
+          releaseId
+        )}`;
 
       const descriptionParts = [
-        artist ? `Artist: ${artist}` : "",
+        artist
+          ? `Artist: ${artist}`
+          : "",
         genre ? `Genre: ${genre}` : "",
         price ? `Price: ${price}` : "",
         "Available from the Ray'sStream Music Shop.",
@@ -203,7 +242,8 @@ export async function POST(request: NextRequest) {
         title: artist
           ? `${title} — ${artist}`
           : title,
-        description: descriptionParts.join(" "),
+        description:
+          descriptionParts.join(" "),
         content: [
           title,
           artist,

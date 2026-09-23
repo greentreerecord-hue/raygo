@@ -14,15 +14,27 @@ type ActionResult = {
   errors?: string[];
 };
 
-type ActionType = "crawler" | "news" | "music";
+type ActionType =
+  | "crawler"
+  | "news"
+  | "music";
 
 export default function CrawlerDashboardPage() {
-  const [websiteUrl, setWebsiteUrl] = useState("");
-  const [feedUrl, setFeedUrl] = useState("");
-  const [crawlerSecret, setCrawlerSecret] = useState("");
+  const [websiteUrl, setWebsiteUrl] =
+    useState("");
 
-  const [message, setMessage] = useState("");
-  const [resultLinks, setResultLinks] = useState<string[]>([]);
+  const [feedUrl, setFeedUrl] =
+    useState("");
+
+  const [crawlerSecret, setCrawlerSecret] =
+    useState("");
+
+  const [message, setMessage] =
+    useState("");
+
+  const [resultLinks, setResultLinks] =
+    useState<string[]>([]);
+
   const [working, setWorking] =
     useState<ActionType | null>(null);
 
@@ -34,7 +46,9 @@ export default function CrawlerDashboardPage() {
     const secret = crawlerSecret.trim();
 
     if (!secret) {
-      setMessage("Enter your private crawler secret.");
+      setMessage(
+        "Enter your private crawler secret."
+      );
       return;
     }
 
@@ -52,7 +66,8 @@ export default function CrawlerDashboardPage() {
         body: JSON.stringify(body),
       });
 
-      const data = (await response.json()) as ActionResult;
+      const data =
+        (await response.json()) as ActionResult;
 
       if (!response.ok) {
         throw new Error(
@@ -71,19 +86,22 @@ export default function CrawlerDashboardPage() {
       if (action === "news") {
         setMessage(
           `Success! RayGo imported ${
-            data.importedCount ?? links.length
+            data.importedCount ??
+            links.length
           } news article(s).`
         );
       } else if (action === "music") {
         setMessage(
           `Success! RayGo imported ${
-            data.importedCount ?? links.length
+            data.importedCount ??
+            links.length
           } music release(s).`
         );
       } else {
         setMessage(
           `Success! RayGo indexed ${
-            data.indexedCount ?? links.length
+            data.indexedCount ??
+            links.length
           } page(s).`
         );
       }
@@ -107,7 +125,9 @@ export default function CrawlerDashboardPage() {
     const url = websiteUrl.trim();
 
     if (!url) {
-      setMessage("Enter a public website URL.");
+      setMessage(
+        "Enter a public website URL."
+      );
       return;
     }
 
@@ -151,7 +171,8 @@ export default function CrawlerDashboardPage() {
     );
   }
 
-  const isSuccess = message.startsWith("Success!");
+  const isSuccess =
+    message.startsWith("Success!");
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-blue-100 px-5 py-8 text-slate-900">
@@ -162,14 +183,18 @@ export default function CrawlerDashboardPage() {
               href="/"
               className="text-3xl font-black tracking-tight"
             >
-              <span className="text-blue-600">Ray</span>
+              <span className="text-blue-600">
+                Ray
+              </span>
+
               <span className="text-emerald-500">
                 Go
               </span>
             </Link>
 
             <p className="mt-1 text-slate-600">
-              Crawler, News and Music Dashboard
+              Crawler, News and Music
+              Dashboard
             </p>
           </div>
 
@@ -187,9 +212,9 @@ export default function CrawlerDashboardPage() {
           </h1>
 
           <p className="mt-2 text-slate-600">
-            Add websites, news feeds and approved
-            Ray&apos;sStream music to the RayGo search
-            index.
+            Add websites, news feeds and
+            approved Ray&apos;sStream music
+            to the RayGo search index.
           </p>
 
           <div className="mt-6">
@@ -205,7 +230,9 @@ export default function CrawlerDashboardPage() {
               type="password"
               value={crawlerSecret}
               onChange={(event) =>
-                setCrawlerSecret(event.target.value)
+                setCrawlerSecret(
+                  event.target.value
+                )
               }
               placeholder="Enter your private crawler secret"
               autoComplete="off"
@@ -213,8 +240,8 @@ export default function CrawlerDashboardPage() {
             />
 
             <p className="mt-2 text-sm text-slate-500">
-              Your secret is masked and cleared after every
-              request.
+              Your secret is masked and
+              cleared after every request.
             </p>
           </div>
         </section>
@@ -230,8 +257,9 @@ export default function CrawlerDashboardPage() {
             </h2>
 
             <p className="mt-1 text-slate-600">
-              Index public pages from a website for regular
-              RayGo search.
+              Index public pages from a
+              website for regular RayGo
+              search.
             </p>
           </div>
 
@@ -248,7 +276,9 @@ export default function CrawlerDashboardPage() {
               type="url"
               value={websiteUrl}
               onChange={(event) =>
-                setWebsiteUrl(event.target.value)
+                setWebsiteUrl(
+                  event.target.value
+                )
               }
               placeholder="https://example.com"
               required
@@ -278,8 +308,9 @@ export default function CrawlerDashboardPage() {
             </h2>
 
             <p className="mt-1 text-slate-600">
-              Import articles from a public RSS or Atom feed
-              into RayGo News.
+              Import articles from a public
+              RSS or Atom feed into RayGo
+              News.
             </p>
           </div>
 
@@ -296,7 +327,9 @@ export default function CrawlerDashboardPage() {
               type="url"
               value={feedUrl}
               onChange={(event) =>
-                setFeedUrl(event.target.value)
+                setFeedUrl(
+                  event.target.value
+                )
               }
               placeholder="https://example.com/news/feed.xml"
               required
@@ -326,10 +359,12 @@ export default function CrawlerDashboardPage() {
             </h2>
 
             <p className="mt-1 text-slate-600">
-              Import approved releases from the
-              Ray&apos;sStream Music Shop into RayGo Music.
-              Search results send listeners to the shop
-              without exposing private purchase links.
+              Import approved releases from
+              the Ray&apos;sStream Music
+              Shop into RayGo Music. Search
+              results send listeners to the
+              shop without exposing private
+              purchase links.
             </p>
           </div>
 
@@ -340,7 +375,7 @@ export default function CrawlerDashboardPage() {
               </p>
 
               <p className="mt-1 break-all text-sm">
-                https://raysstream.com/api/music-shop
+                https://raysstream.com/api/music
               </p>
             </div>
 
@@ -364,7 +399,9 @@ export default function CrawlerDashboardPage() {
                 : "border-red-200 bg-red-50 text-red-800"
             }`}
           >
-            <p className="font-bold">{message}</p>
+            <p className="font-bold">
+              {message}
+            </p>
           </section>
         )}
 
@@ -391,8 +428,9 @@ export default function CrawlerDashboardPage() {
         )}
 
         <p className="mt-8 text-center text-sm text-slate-500">
-          Only crawl public websites and feeds you trust.
-          RayGo blocks private network addresses.
+          Only crawl public websites and
+          feeds you trust. RayGo blocks
+          private network addresses.
         </p>
       </div>
     </main>
