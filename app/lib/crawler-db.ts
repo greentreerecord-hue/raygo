@@ -67,18 +67,35 @@ export async function ensureCrawlerTable() {
     `;
 
     await sql`
-      CREATE INDEX IF NOT EXISTS raygo_indexed_pages_hostname_idx
+      CREATE INDEX IF NOT EXISTS
+      raygo_indexed_pages_hostname_idx
       ON raygo_indexed_pages (hostname)
     `;
 
     await sql`
-      CREATE INDEX IF NOT EXISTS raygo_indexed_pages_category_idx
+      CREATE INDEX IF NOT EXISTS
+      raygo_indexed_pages_category_idx
       ON raygo_indexed_pages (category)
     `;
 
     await sql`
-      CREATE INDEX IF NOT EXISTS raygo_indexed_pages_published_idx
+      CREATE INDEX IF NOT EXISTS
+      raygo_indexed_pages_published_idx
       ON raygo_indexed_pages (published_at DESC)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS
+      raygo_indexed_pages_search_idx
+      ON raygo_indexed_pages
+      USING GIN (
+        to_tsvector(
+          'simple',
+          COALESCE(title, '') || ' ' ||
+          COALESCE(description, '') || ' ' ||
+          COALESCE(content, '')
+        )
+      )
     `;
   } finally {
     await sql.end();
@@ -89,10 +106,8 @@ export async function saveIndexedPage(
   page: IndexedPage
 ) {
   const sql = getDatabase();
-  const category =
-    page.category || "web";
-  const publishedAt =
-    page.publishedAt || null;
+  const category = page.category || "web";
+  const publishedAt = page.publishedAt || null;
 
   try {
     await ensureCrawlerTable();
@@ -137,15 +152,15 @@ export async function searchIndexedPages(
   searchText: string,
   category?: string
 ) {
-  const query =
-    searchText.trim();
+  const query = searchText.trim();
 
   if (!query) {
     return [];
   }
 
   const sql = getDatabase();
-  const pattern = `%${query}%`;
+  const containsPattern = `%${query}%`;
+  const startsPattern = `${query}%`;
 
   try {
     await ensureCrawlerTable();
@@ -163,16 +178,50 @@ export async function searchIndexedPages(
         FROM raygo_indexed_pages
         WHERE category = ${category}
           AND (
-            title ILIKE ${pattern}
-            OR description ILIKE ${pattern}
-            OR content ILIKE ${pattern}
+            title ILIKE ${containsPattern}
+            OR description ILIKE ${containsPattern}
+            OR content ILIKE ${containsPattern}
+            OR hostname ILIKE ${containsPattern}
+            OR to_tsvector(
+              'simple',
+              COALESCE(title, '') || ' ' ||
+              COALESCE(description, '') || ' ' ||
+              COALESCE(content, '')
+            ) @@ plainto_tsquery('simple', ${query})
           )
         ORDER BY
           CASE
-            WHEN title ILIKE ${pattern} THEN 1
-            WHEN description ILIKE ${pattern} THEN 2
-            ELSE 3
+            WHEN LOWER(title) = LOWER(${query}) THEN 1
+            WHEN title ILIKE ${startsPattern} THEN 2
+            WHEN title ILIKE ${containsPattern} THEN 3
+            WHEN hostname ILIKE ${containsPattern} THEN 4
+            WHEN description ILIKE ${containsPattern} THEN 5
+            ELSE 6
           END,
+          ts_rank_cd(
+            setweight(
+              to_tsvector(
+                'simple',
+                COALESCE(title, '')
+              ),
+              'A'
+            ) ||
+            setweight(
+              to_tsvector(
+                'simple',
+                COALESCE(description, '')
+              ),
+              'B'
+            ) ||
+            setweight(
+              to_tsvector(
+                'simple',
+                COALESCE(content, '')
+              ),
+              'C'
+            ),
+            plainto_tsquery('simple', ${query})
+          ) DESC,
           published_at DESC NULLS LAST,
           indexed_at DESC
         LIMIT 25
@@ -190,15 +239,49 @@ export async function searchIndexedPages(
         indexed_at
       FROM raygo_indexed_pages
       WHERE
-        title ILIKE ${pattern}
-        OR description ILIKE ${pattern}
-        OR content ILIKE ${pattern}
+        title ILIKE ${containsPattern}
+        OR description ILIKE ${containsPattern}
+        OR content ILIKE ${containsPattern}
+        OR hostname ILIKE ${containsPattern}
+        OR to_tsvector(
+          'simple',
+          COALESCE(title, '') || ' ' ||
+          COALESCE(description, '') || ' ' ||
+          COALESCE(content, '')
+        ) @@ plainto_tsquery('simple', ${query})
       ORDER BY
         CASE
-          WHEN title ILIKE ${pattern} THEN 1
-          WHEN description ILIKE ${pattern} THEN 2
-          ELSE 3
+          WHEN LOWER(title) = LOWER(${query}) THEN 1
+          WHEN title ILIKE ${startsPattern} THEN 2
+          WHEN title ILIKE ${containsPattern} THEN 3
+          WHEN hostname ILIKE ${containsPattern} THEN 4
+          WHEN description ILIKE ${containsPattern} THEN 5
+          ELSE 6
         END,
+        ts_rank_cd(
+          setweight(
+            to_tsvector(
+              'simple',
+              COALESCE(title, '')
+            ),
+            'A'
+          ) ||
+          setweight(
+            to_tsvector(
+              'simple',
+              COALESCE(description, '')
+            ),
+            'B'
+          ) ||
+          setweight(
+            to_tsvector(
+              'simple',
+              COALESCE(content, '')
+            ),
+            'C'
+          ),
+          plainto_tsquery('simple', ${query})
+        ) DESC,
         published_at DESC NULLS LAST,
         indexed_at DESC
       LIMIT 25
