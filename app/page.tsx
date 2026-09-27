@@ -400,7 +400,7 @@ export default function Home() {
               : "max-w-3xl"
           }`}
         >
-          <div className="mb-5 flex items-center justify-between gap-4">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-2"> 
             <h2 className="text-2xl font-black">
               {
                 categoryHeadings[
@@ -499,6 +499,16 @@ export default function Home() {
                     key={result.url}
                     className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:shadow-md"
                   >
+                    {activeCategory === "videos" && (
+  <video
+    src={result.url}
+    controls
+    preload="metadata"
+    className="mb-4 w-full rounded-2xl bg-black"
+  >
+    Your browser does not support video playback.
+  </video>
+)} 
                     <div className="mb-2 flex flex-wrap items-center gap-3 text-sm">
                       <span className="font-medium text-emerald-600">
                         {result.hostname}
